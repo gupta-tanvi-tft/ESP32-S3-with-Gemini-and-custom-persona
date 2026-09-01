@@ -1,0 +1,887 @@
+{
+  "message": "Persona generated and saved successfully to PostgreSQL and cached in Redis",
+  "persona_id": "28996d05-82c9-4820-9199-3d5f15597376",
+  "data": {
+    "_meta": {
+      "schema_version": "2.0.0",
+      "mongo_patient_id": "6788b86e88a19b5546fe8790",
+      "generated_at": 1784790631,
+      "valid_until": 1784877031,
+      "sync_status": "in_sync",
+      "last_synced_at": 1784790631,
+      "persona_hash": "826466f376df9fdd3c44e8638fa8b5cf",
+      "emergency_flags": {
+        "overall": false,
+        "cgm_critical": false,
+        "bp_critical": false,
+        "glucose_critical": false
+      },
+      "feature_completeness": {
+        "has_cgm": true,
+        "has_glucometer": true,
+        "has_blood_pressure": false,
+        "has_face_scan": true,
+        "has_meals": true,
+        "has_activity": true,
+        "has_healthkit": true,
+        "has_medications": true,
+        "has_symptoms": true,
+        "has_scale_parameters": true,
+        "has_lab_reports": true,
+        "has_prescription": false,
+        "has_consultation": true
+      }
+    },
+    "identity": {
+      "first_name": "Samarth",
+      "patient_id": "6788b86e88a19b5546fe8790",
+      "date_of_birth": "07/05/1995",
+      "age_years": 31,
+      "gender": "male",
+      "language": "en",
+      "timezone": "Asia/Kolkata",
+      "country_code": "+91",
+      "locale": null,
+      "anthropometry": {
+        "height_cm": 180.34,
+        "weight_kg": 70,
+        "bmi": 48,
+        "bmi_category": "Obese",
+        "body_fat_percent": 20,
+        "muscle_mass_kg": 16,
+        "whr": 0.6,
+        "bmr_kcal": 501,
+        "maintenance_calories_kcal": 1894,
+        "weight_loss_calories_kcal": 1394,
+        "last_weigh_in": 1757496909
+      }
+    },
+    "clinical_context": {
+      "primary_goal": null,
+      "diagnoses": [],
+      "is_diabetic": false,
+      "is_hypertensive": false,
+      "comorbidities": [
+        "excessive thirst"
+      ],
+      "diet_type": [],
+      "allergies_and_restrictions": [],
+      "health_goals": [],
+      "exercise_frequency": null,
+      "exercise_detail": null,
+      "exercise_min_per_week": null,
+      "ethnicity": null,
+      "lifestyle_notes": null
+    },
+    "care_team": {
+      "assigned_doctor": {
+        "doctor_id": "6788b62688a19b5546fe8723",
+        "name": "Samarth Gupta",
+        "specialization": "Endocrinologist",
+        "hospital_affiliation": []
+      },
+      "current_program": {
+        "program_id": "69d6143adf4f2354c9046e12",
+        "program_name": "MRP All Features Program",
+        "program_type": "paid",
+        "program_description": "This program is used for testing where all the features are available",
+        "tier": null,
+        "enrollment_date": 1780492909,
+        "expiry_date": 1796044909,
+        "days_remaining": null,
+        "next_renewal_date": 1796044909
+      },
+      "is_mrp_enrolled": false,
+      "consultation_history": {
+        "total_count": 3,
+        "completed_count": 0,
+        "pending_count": 3,
+        "last_completed_consultation": null,
+        "latest_pending_consultation": {
+          "consultation_id": "68f9cc7a3ab2cc019b924f87",
+          "requested_at": 1761201274,
+          "priority": 1,
+          "created_by": "User"
+        }
+      },
+      "prescription_on_file": null,
+      "active_clinical_alerts": [],
+      "doctor_notes_latest": {
+        "note_id": "69ccc8dac363ab4e34d06c88",
+        "note": "consulatation is completed",
+        "timestamp": 1775028442,
+        "doctor_id": "6788b62688a19b5546fe8723"
+      }
+    },
+    "engagement": {
+      "registered_at": 1737013358.034,
+      "last_active_at": 1784775798,
+      "days_since_last_active": 0,
+      "onboarding_completed": true,
+      "first_facescan_completed": true,
+      "first_report_uploaded": true,
+      "first_prescription_uploaded": true,
+      "preferred_notification_categories": [
+        "Glucometer",
+        "Activity"
+      ],
+      "notification_quiet_hours": null,
+      "app_version_installed": null,
+      "last_sync_error": null
+    },
+    "cgm_profile": {
+      "active_sensor": {
+        "device_name": "Unknown",
+        "device_id": "libre1",
+        "installed_at": 1741851865,
+        "expires_at": 1743061465,
+        "days_remaining": null,
+        "is_active": true,
+        "glucose_unit": "mgdl",
+        "connection_status": "disconnected",
+        "last_reading_mgdl": null,
+        "last_reading_at": 1741851865
+      },
+      "rolling_7_day": {
+        "average_glucose_mgdl": 131,
+        "tir_percent": 565,
+        "tar_level1_percent": 6,
+        "tbr_level1_percent": 0,
+        "mage_mgdl": null,
+        "glucose_variability_cv_percent": null,
+        "stability_score": null,
+        "nocturnal_hypo_event_count": 0,
+        "nocturnal_hypo_avg_duration_minutes": 0
+      },
+      "rolling_sensor_lifetime": {
+        "average_glucose_mgdl": 131,
+        "tir_percent": 565,
+        "tar_level1_percent": 6,
+        "tbr_level1_percent": 0,
+        "total_readings": 582,
+        "reading_count": 582
+      },
+      "daily_stats": [],
+      "recent_significant_events": [],
+      "trend": {
+        "direction": null
+      },
+      "control_classification": null
+    },
+    "glucometer_profile": {
+      "device_name": "test",
+      "is_connected": true,
+      "readings_total": 13,
+      "last_reading": {
+        "value_mgdl": 125,
+        "slot": "Post Dinner",
+        "timestamp": 1769273254
+      },
+      "previous_reading_same_slot": {
+        "value_mgdl": 110,
+        "timestamp": 1755618499
+      },
+      "slot_averages_all_time_mgdl": {
+        "Pre Lunch": 108,
+        "Pre Dinner": 404,
+        "Post Lunch": 117.5,
+        "Post Dinner": 117.5,
+        "Post Breakfast": 100,
+        "Pre Breakfast": 120
+      },
+      "averages_mgdl": {
+        "last_7_days": null,
+        "last_14_days": null,
+        "last_30_days": null,
+        "all_available": 181
+      },
+      "glucose_target_range": "70-180",
+      "flagged_readings": [
+        {
+          "value_mgdl": 405,
+          "slot": "Pre Dinner",
+          "timestamp": 1741785840,
+          "flag": "HIGH"
+        },
+        {
+          "value_mgdl": 404,
+          "slot": "Pre Dinner",
+          "timestamp": 1741786020,
+          "flag": "HIGH"
+        },
+        {
+          "value_mgdl": 403,
+          "slot": "Pre Dinner",
+          "timestamp": 1741786200,
+          "flag": "HIGH"
+        }
+      ]
+    },
+    "blood_pressure_profile": {},
+    "face_scan_profile": {
+      "total_scans": 20,
+      "latest_scan": {
+        "scanned_at": 1764746081,
+        "device_model": "iPhone 15 Pro Max",
+        "app_version": "4.0.0",
+        "wellness_metrics": {
+          "wellness_index": 10,
+          "wellness_level": "high"
+        },
+        "stress_metrics": {
+          "stress_level": "normal",
+          "stress_index": 87
+        },
+        "vital_signs_extracted": {
+          "pulse_rate_bpm": 79,
+          "respiration_rate_rpm": 19,
+          "oxygen_saturation_percent": 99
+        },
+        "age_metrics": {
+          "heart_age_years": ""
+        },
+        "lab_estimates": {
+          "hba1c_percent": 5.52,
+          "hemoglobin_gdl": 13.7
+        },
+        "hrv_metrics": {
+          "rmssd": 45,
+          "sdnn": 59,
+          "sd1": 22,
+          "sd2": 80,
+          "mean_rri": 761,
+          "lf_hf_ratio": 1.629,
+          "prq": 4.2
+        },
+        "autonomic_balance": {
+          "pns_index": -0.7,
+          "pns_zone": "medium",
+          "sns_index": 0.8,
+          "sns_zone": "medium"
+        },
+        "cardiac_metrics": {
+          "cardiac_workload": 3.96,
+          "pulse_pressure": 38,
+          "mean_arterial_pressure": 91,
+          "body_tension_score": 0
+        },
+        "risk_scores": {
+          "diabetes_risk": "Low",
+          "hypertension_risk": "Low",
+          "high_blood_pressure_risk": "low",
+          "high_hba1c_risk": "low",
+          "high_fasting_glucose_risk": "low",
+          "high_total_cholesterol_risk": "medium",
+          "low_hemoglobin_risk": "low"
+        }
+      },
+      "previous_scan": {
+        "scanned_at": 1763635459,
+        "device_model": "iPhone 15 Pro Max",
+        "app_version": "4.0.0",
+        "wellness_metrics": {
+          "wellness_index": 10,
+          "wellness_level": "high"
+        },
+        "stress_metrics": {
+          "stress_level": "low",
+          "stress_index": 67
+        },
+        "vital_signs_extracted": {
+          "pulse_rate_bpm": 68,
+          "respiration_rate_rpm": 13,
+          "oxygen_saturation_percent": 99
+        },
+        "age_metrics": {
+          "heart_age_years": ""
+        },
+        "lab_estimates": {
+          "hba1c_percent": 4.34,
+          "hemoglobin_gdl": 14.2
+        },
+        "hrv_metrics": {
+          "rmssd": 46,
+          "sdnn": 66,
+          "sd1": 25,
+          "sd2": 90,
+          "mean_rri": 894,
+          "lf_hf_ratio": 4.746,
+          "prq": 5.1
+        },
+        "autonomic_balance": {
+          "pns_index": -0.1,
+          "pns_zone": "medium",
+          "sns_index": 0.1,
+          "sns_zone": "medium"
+        },
+        "cardiac_metrics": {
+          "cardiac_workload": 3.87,
+          "pulse_pressure": 36,
+          "mean_arterial_pressure": 84,
+          "body_tension_score": 0
+        },
+        "risk_scores": {
+          "diabetes_risk": "Low",
+          "hypertension_risk": "Low",
+          "high_blood_pressure_risk": "low",
+          "high_hba1c_risk": "low",
+          "high_fasting_glucose_risk": "low",
+          "high_total_cholesterol_risk": "medium",
+          "low_hemoglobin_risk": "low"
+        }
+      },
+      "trend": {
+        "wellness_direction": "improving",
+        "stress_direction": "worsening"
+      }
+    },
+    "nutrition_profile": {
+      "last_logged_meal": {
+        "meal_id": "6a4b86a3b56ef411cef251c3",
+        "meal_type": "lunch",
+        "meal_name": "Masala Chai",
+        "logged_at": 1783334531,
+        "macronutrients": {
+          "calories": 30,
+          "protein_g": 0.7,
+          "carbs_g": 4,
+          "fat_g": 1,
+          "fiber_g": 0.2
+        },
+        "glycemic_metrics": {
+          "glycemic_load": 2.4,
+          "glycemic_category": "medium",
+          "avg_glucose_peak_mgdl": 0
+        },
+        "quality_score": 5
+      },
+      "rolling_7_day_averages": {
+        "calories_kcal_per_day": null,
+        "protein_g_per_day": null,
+        "carbs_g_per_day": null,
+        "fat_g_per_day": null,
+        "fiber_g_per_day": null,
+        "glycemic_load_per_day": null,
+        "sodium_mg_per_day": null,
+        "average_meal_quality_score": null
+      },
+      "rolling_30_day_summary": {
+        "total_meals_logged": 10,
+        "logging_consistency_percent": null,
+        "calorie_goal_compliance_percent": null,
+        "calorie_goal_kcal": null
+      },
+      "frequent_foods": [],
+      "flagged_foods": []
+    },
+    "activity_profile": {
+      "weekly_summary": {
+        "total_minutes": null,
+        "session_count": 1,
+        "most_frequent_activities": []
+      },
+      "healthkit_latest": {
+        "date_epoch": 1769472000,
+        "steps": 3694,
+        "total_calories": 1115,
+        "sleep_minutes": 0,
+        "source": "apple_health",
+        "synced_at": 1769506000
+      },
+      "healthkit_30_day": {
+        "avg_daily_steps": null,
+        "avg_daily_active_calories_kcal": null,
+        "avg_daily_sleep_minutes": null,
+        "days_with_data": 1
+      }
+    },
+    "medications_profile": {
+      "active_medications": [
+        {
+          "medication_id": "68a493b394a3bc575c0d0542",
+          "name": "paracetamol",
+          "frequency": "everyday",
+          "intake_times": [
+            "08:00 AM",
+            "02:00 PM",
+            "09:00 PM"
+          ],
+          "added_by": "patient",
+          "start_date_epoch": 1755616158,
+          "last_taken_epoch": null
+        }
+      ],
+      "inactive_medications": [
+        {
+          "medication_id": "678a22691a093d60fa692bb2",
+          "name": "Paracetamol",
+          "frequency": "everyday",
+          "intake_times": [
+            "02:00 PM"
+          ],
+          "added_by": "patient",
+          "reason_inactive": "deactivated by patient",
+          "deactivated_epoch": 1755163611
+        },
+        {
+          "medication_id": "689dabfa94a3bc575cb48c86",
+          "name": "paracetamol",
+          "frequency": "everyday",
+          "intake_times": [
+            "08:00 AM"
+          ],
+          "added_by": "patient",
+          "reason_inactive": "deactivated by patient",
+          "deactivated_epoch": 1755616152
+        },
+        {
+          "medication_id": "689dac5e94a3bc575cb492b8",
+          "name": "chest and cold",
+          "frequency": "everyday",
+          "intake_times": [
+            "02:00 PM"
+          ],
+          "added_by": "patient",
+          "reason_inactive": "deactivated by patient",
+          "deactivated_epoch": 1755616148
+        },
+        {
+          "medication_id": "6937dfcfd0e68648486e6bbb",
+          "name": "dolo",
+          "frequency": "selected_days",
+          "intake_times": [
+            "08:00 AM",
+            "09:00 PM"
+          ],
+          "added_by": "patient",
+          "reason_inactive": "deactivated by patient",
+          "deactivated_epoch": 1765528244
+        },
+        {
+          "medication_id": "69ccc117c363ab4e34cf09d7",
+          "name": "dolo",
+          "frequency": "selected_days",
+          "intake_times": [
+            "08:00 AM",
+            "09:00 AM"
+          ],
+          "added_by": "doctor",
+          "reason_inactive": "deactivated by patient",
+          "deactivated_epoch": 1775026496
+        }
+      ],
+      "adherence_all_time": {
+        "total_history_entries": 25,
+        "taken": 0,
+        "missed": 25,
+        "adherence_rate_percent": 0
+      },
+      "adherence_trend": "stable"
+    },
+    "symptoms_profile": {
+      "logs_30_day": 1,
+      "most_common_symptoms": [
+        {
+          "symptom": "excessive thirst",
+          "occurrences": 1,
+          "avg_severity": 5
+        }
+      ],
+      "latest_symptom_log": {
+        "symptoms": [
+          "excessive thirst"
+        ],
+        "severity": 8,
+        "notes": "",
+        "logged_at": 1781783385
+      },
+      "max_severity_30_day": 10,
+      "avg_severity_30_day": 5.5,
+      "has_active_symptoms": true
+    },
+    "weight_and_composition_profile": {
+      "latest_measurement": {
+        "weight_kg": 70,
+        "bmi": 48,
+        "bmi_category": "Obese",
+        "body_fat_percent": 20,
+        "muscle_mass_kg": 16,
+        "whr": 0.6,
+        "measured_at": 1757496909
+      },
+      "trend_available": {
+        "weight_change_kg": -16.2,
+        "body_fat_change_percent": null,
+        "trend": "decreasing",
+        "note": null
+      },
+      "all_measurements": [
+        {
+          "weight_kg": 77.5,
+          "bmi": 23.8,
+          "body_fat_percent": 0,
+          "muscle_mass_kg": null,
+          "whr": 0,
+          "timestamp": 1737186970
+        },
+        {
+          "weight_kg": 81.6,
+          "bmi": 25.2,
+          "body_fat_percent": 20.9,
+          "muscle_mass_kg": 60.14,
+          "whr": 0.91,
+          "timestamp": 1741851705
+        },
+        {
+          "weight_kg": 84,
+          "bmi": 25.8,
+          "body_fat_percent": 0,
+          "muscle_mass_kg": null,
+          "whr": 0,
+          "timestamp": 1753431268
+        },
+        {
+          "weight_kg": 84,
+          "bmi": 25.8,
+          "body_fat_percent": 0,
+          "muscle_mass_kg": null,
+          "whr": 0,
+          "timestamp": 1753431271
+        },
+        {
+          "weight_kg": 70,
+          "bmi": 20,
+          "body_fat_percent": 20,
+          "muscle_mass_kg": 11,
+          "whr": 23,
+          "timestamp": 1755635362
+        },
+        {
+          "weight_kg": 86.2,
+          "bmi": 26.6,
+          "body_fat_percent": 22,
+          "muscle_mass_kg": 62.67,
+          "whr": 0.9,
+          "timestamp": 1756539419
+        },
+        {
+          "weight_kg": 70,
+          "bmi": 48,
+          "body_fat_percent": 20,
+          "muscle_mass_kg": 16,
+          "whr": 0.6,
+          "timestamp": 1757496909
+        }
+      ]
+    },
+    "lab_results_profile": {
+      "total_uploaded": 23,
+      "latest_report": {
+        "report_id": "6a32b533dbdbf1fbed60df24",
+        "report_name": "Samarth by Redcliff",
+        "uploaded_at": 1781708083,
+        "report_date": "08-06-2026",
+        "report_summary": null,
+        "has_critical_values": false,
+        "critical_flags": [],
+        "hematology": {
+          "hemoglobin_(hb)": {
+            "value": 13.3,
+            "unit": "g/dL",
+            "ref": "13.0 - 17.0",
+            "status": "NORMAL"
+          },
+          "rbc_count": {
+            "value": 4.4,
+            "unit": "10^6/µl",
+            "ref": "4.5 - 5.5",
+            "status": "NORMAL"
+          },
+          "wbc_count": {
+            "value": 5.7,
+            "unit": "10^3/µl",
+            "ref": "4 - 10",
+            "status": "NORMAL"
+          },
+          "platelet_count": {
+            "value": 253,
+            "unit": "10^3/µl",
+            "ref": "150 - 410",
+            "status": "NORMAL"
+          },
+          "bilirubin_total": {
+            "value": 0.5,
+            "unit": "mg/dL",
+            "ref": "0 - 1.2",
+            "status": "NORMAL"
+          },
+          "sgot/ast": {
+            "value": 71.1,
+            "unit": "U/L",
+            "ref": "up to 40",
+            "status": "NORMAL"
+          },
+          "sgpt/alt": {
+            "value": 26.3,
+            "unit": "U/L",
+            "ref": "up to 41",
+            "status": "NORMAL"
+          },
+          "vitamin_b12": {
+            "value": 256,
+            "unit": "pg/mL",
+            "ref": "180-914",
+            "status": "NORMAL"
+          },
+          "vitamin_d,_25_hydroxy": {
+            "value": 26.4,
+            "unit": "ng/mL",
+            "ref": "30 - 100",
+            "status": "NORMAL"
+          }
+        },
+        "glucose": {},
+        "lipids": {
+          "cholesterol_total": {
+            "value": 109,
+            "unit": "mg/dL",
+            "ref": "<200",
+            "status": "NORMAL"
+          },
+          "triglycerides": {
+            "value": 217,
+            "unit": "mg/dL",
+            "ref": "<150",
+            "status": "NORMAL"
+          },
+          "hdl_cholesterol": {
+            "value": 50.7,
+            "unit": "mg/dL",
+            "ref": ">40",
+            "status": "NORMAL"
+          },
+          "ldl_cholesterol": {
+            "value": 14.9,
+            "unit": "mg/dL",
+            "ref": "<100",
+            "status": "NORMAL"
+          }
+        },
+        "kidney": {
+          "blood_urea": {
+            "value": 20.9,
+            "unit": "mg/dL",
+            "ref": "16.6 - 48.5",
+            "status": "NORMAL"
+          },
+          "creatinine": {
+            "value": 0.9,
+            "unit": "mg/dL",
+            "ref": "0.6 - 1.3",
+            "status": "NORMAL"
+          },
+          "gfr_estimated": {
+            "value": 117.08,
+            "unit": "ml/min/1.73 sq m",
+            "ref": ">= 90",
+            "status": "NORMAL"
+          }
+        },
+        "electrolytes": {}
+      },
+      "previous_report_comparison": {
+        "report_id": "6a1fff3babcda7c6946d3092",
+        "report_date": "21-02-2026",
+        "hematology": {
+          "hemoglobin_(hb)": {
+            "value": 14.5,
+            "unit": "g/dL",
+            "ref": "13.00 - 17.00",
+            "status": "NORMAL"
+          },
+          "rbc_count": {
+            "value": 4.6,
+            "unit": "mill/mm3",
+            "ref": "4.50 - 5.50",
+            "status": "NORMAL"
+          },
+          "wbc_count": {
+            "value": 7.55,
+            "unit": "thou/mm3",
+            "ref": "4.00 - 10.00",
+            "status": "NORMAL"
+          },
+          "platelet_count": {
+            "value": 184,
+            "unit": "thou/mm3",
+            "ref": "150.00 - 410.00",
+            "status": "NORMAL"
+          },
+          "hs_crp": {
+            "value": 1.32,
+            "unit": "mg/L",
+            "ref": "<1.00",
+            "status": "NORMAL"
+          }
+        },
+        "glucose": {
+          "glucose_fasting": {
+            "value": 127,
+            "unit": "mg/dL",
+            "ref": "70 - 100",
+            "status": "NORMAL"
+          },
+          "hba1c": {
+            "value": 6.6,
+            "unit": "%",
+            "ref": "4.00 - 5.60",
+            "status": "NORMAL"
+          }
+        },
+        "lipids": {
+          "cholesterol_total": {
+            "value": 137,
+            "unit": "mg/dL",
+            "ref": "<200.00",
+            "status": "NORMAL"
+          },
+          "triglycerides": {
+            "value": 118,
+            "unit": "mg/dL",
+            "ref": "<150.00",
+            "status": "NORMAL"
+          },
+          "hdl_cholesterol": {
+            "value": 47,
+            "unit": "mg/dL",
+            "ref": ">40.00",
+            "status": "NORMAL"
+          },
+          "ldl_cholesterol": {
+            "value": 66.4,
+            "unit": "mg/dL",
+            "ref": "<100.00",
+            "status": "NORMAL"
+          }
+        },
+        "kidney": {
+          "creatinine": {
+            "value": 0.81,
+            "unit": "mg/dL",
+            "ref": "0.70 - 1.30",
+            "status": "NORMAL"
+          },
+          "gfr_estimated": {
+            "value": 100,
+            "unit": "mL/min/1.73m2",
+            "ref": ">59",
+            "status": "NORMAL"
+          }
+        },
+        "electrolytes": {}
+      }
+    },
+    "derived_health_signals": {
+      "metabolic_health_scores": {
+        "diabetes_control": "fair",
+        "cardiovascular_risk": "moderate",
+        "anaemia_risk": "low",
+        "metabolic_health_score": null,
+        "lifestyle_quality_score": null
+      },
+      "clinical_insights": {
+        "key_concerns": [
+          {
+            "title": "Obesity and Potential Metabolic Syndrome",
+            "severity": "high",
+            "description": "The patient's BMI is severely elevated (48.0), categorizing them as Obese. This, combined with a history of high triglycerides (217.0 mg/dL) and a borderline high HbA1c (latest: 5.52%, previous: 6.6%), indicates a significant risk for metabolic syndrome and type 2 diabetes, despite recent improvements in HbA1c. The 'excessive thirst' symptom is also noted."
+          },
+          {
+            "title": "Elevated Triglycerides",
+            "severity": "moderate",
+            "description": "Recent lab results show triglycerides at 217.0 mg/dL, which is above the recommended <150 mg/dL, indicating an increased risk for cardiovascular disease."
+          },
+          {
+            "title": "Vitamin D Deficiency",
+            "severity": "moderate",
+            "description": "The latest lab report indicates Vitamin D (25-hydroxy) at 26.4 ng/mL, which is below the target range of 30-100 ng/mL, suggesting a deficiency that could impact bone health and immune function."
+          },
+          {
+            "title": "Medication Adherence",
+            "severity": "low",
+            "description": "The patient has a 100% missed medication history according to the profile, indicating zero adherence to prescribed or active medications, which could compromise treatment efficacy for any underlying conditions."
+          }
+        ],
+        "recent_wins": [
+          {
+            "achievement": "Improved Weight and BMI",
+            "description": "The patient has experienced a significant weight loss of 16.2 kg, bringing their BMI down from 26.6 to 20.0. This is a substantial achievement in managing obesity."
+          },
+          {
+            "achievement": "Improved HbA1c",
+            "description": "The latest HbA1c reading is 5.52%, a notable improvement from the previous reading of 6.6%. This indicates better glycemic control compared to the earlier report."
+          },
+          {
+            "achievement": "Improved Cardiovascular Risk Factors",
+            "description": "LDL cholesterol has decreased significantly from 66.4 mg/dL to 14.9 mg/dL. While triglycerides remain high, the overall lipid profile shows positive changes."
+          }
+        ],
+        "behavioral_flags": [
+          {
+            "behavior": "Consistent Missed Medications",
+            "recommendation": "Educate the patient on the importance of medication adherence for managing chronic conditions and explore potential barriers to adherence (e.g., cost, side effects, forgetfulness) to develop a personalized adherence plan."
+          },
+          {
+            "behavior": "Inconsistent Lifestyle Data",
+            "recommendation": "Encourage consistent tracking of lifestyle factors such as diet, exercise, and sleep. This will provide a more comprehensive understanding of the patient's health status and allow for more tailored interventions."
+          },
+          {
+            "behavior": "Symptom Monitoring",
+            "recommendation": "Closely monitor the 'excessive thirst' symptom and its correlation with glucose levels. Investigate potential causes such as dehydration, uncontrolled diabetes, or other underlying conditions. Recommend regular fluid intake and blood glucose monitoring."
+          }
+        ]
+      }
+    },
+    "ai_copilot_context": {
+      "suitable_for_realtime_conversation": true,
+      "executive_summary_for_llm": "The patient, Samarth, is a 31-year-old male with a significant history of obesity (BMI 48.0) and a reported comorbidity of 'excessive thirst'. His latest lab results show an HbA1c of 5.52% (improved from 6.6%), triglycerides of 217.0 mg/dL (elevated), and Vitamin D at 26.4 ng/mL (deficient). Notably, there's a 100% missed medication history, presenting a major adherence challenge. Recent wins include significant weight loss, improved HbA1c, and improved LDL cholesterol. Key concerns revolve around obesity, potential metabolic syndrome, elevated triglycerides, and medication non-adherence. The patient's engagement is high, with completed onboarding and regular face scans, showing a trend of improving wellness and worsening stress. He is enrolled in the 'MRP All Features Program' with his endocrinologist, Dr. Samarth Gupta, and has 3 pending consultations.",
+      "conversation_starters_for_agent": [
+        "Hi Samarth, it's great to see your HbA1c has improved to 5.52%. Let's discuss how we can continue this positive trend.",
+        "I noticed you've lost a significant amount of weight recently, which is fantastic progress! Can you tell me more about how you're feeling?",
+        "We see that your triglycerides are still a bit high. Let's explore some strategies that might help bring those numbers down.",
+        "Samarth, I want to talk about your medications. It's really important that we find a way to ensure you're taking them as prescribed. Can we discuss any challenges you might be facing?"
+      ],
+      "contraindications_and_safety_alerts": [
+        {
+          "alert": "Critical Medication Non-Adherence",
+          "context": "The patient has a 100% missed medication history. This significantly compromises the effectiveness of any treatment plan and increases the risk of complications.",
+          "severity": "high"
+        },
+        {
+          "alert": "High Risk for Metabolic Syndrome",
+          "context": "Elevated BMI (48.0), high triglycerides (217.0 mg/dL), and a history of borderline high HbA1c (though recently improved) indicate a high risk for metabolic syndrome. The 'excessive thirst' symptom warrants close monitoring.",
+          "severity": "high"
+        },
+        {
+          "alert": "Vitamin D Deficiency",
+          "context": "Vitamin D level is 26.4 ng/mL, which is below the target range and may impact bone health and immune function. This should be addressed with supplementation and monitoring.",
+          "severity": "moderate"
+        }
+      ],
+      "response_guidance": {
+        "tone": "Empathetic, encouraging, and informative. Focus on celebrating progress while addressing challenges directly but supportively.",
+        "cultural_context": "N/A (Standard healthcare interaction)",
+        "language_preference": "en",
+        "avoid_topics": [
+          "Blaming or shaming for medication non-adherence",
+          "Dismissing the patient's reported symptom of 'excessive thirst'",
+          "Overly technical medical jargon"
+        ]
+      }
+    },
+    "narrative_summary": {
+      "short_summary": "Samarth has joined MRP All Features Program. 20 face scan(s) on file. Connected data: cgm, glucometer, face_scan, meals, activity, healthkit, medications, symptoms, scale_parameters, lab_reports, consultation. No historical trends available yet.",
+      "detailed_summary": "Samarth is beginning their health journey on YHealth. This is the first persona generation with clinical data available. Connected data types: cgm, glucometer, face_scan, meals, activity, healthkit, medications, symptoms, scale_parameters, lab_reports, consultation. No prior trend analysis is possible yet — future syncs will establish baselines."
+    }
+  }
+}
