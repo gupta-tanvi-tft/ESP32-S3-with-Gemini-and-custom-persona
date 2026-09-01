@@ -34,12 +34,51 @@ The system features real-time 4-channel microphone beamforming, ultra-sensitive 
 ## 🏗️ System Architecture
 
 ```mermaid
-graph TD
-    A["🎙️ Waveshare ESP32-S3-AUDIO<br/>(4-Mic Array + Speaker)"] -->|"Wi-Fi HTTP (PCM 16kHz WAV)"| B["⚡ FastAPI Relay Server<br/>(port 8008)"]
-    B -->|"REST API (User Audio + System Prompt)"| C["🧠 Google Gemini 3.1 Flash Lite<br/>(Generative AI)"]
-    C -->|"Persona Text Reply"| B
-    B -->|"Edge-TTS (en-US-AvaNeural)"| D["🔊 16kHz PCM Audio Stream"]
-    D -->|"HTTP Response Header (X-Set-Volume)"| A
+graph TB
+    subgraph HW["🎙️ Waveshare ESP32-S3-AUDIO Hardware Layer"]
+        direction TB
+        MIC["🎤 ES7210 4-Mic ADC Array<br/>(I2C: 0x40 | I2S0)<br/><i>RECORD_VOLUME = 65.0</i>"]
+        SPK["🔊 ES8311 Speaker DAC<br/>(I2C: 0x18 | I2S1)<br/><i>Dual-Layer Volume & PA Power</i>"]
+        EXP["🎛️ TCA9555 GPIO Expander<br/>(I2C: 0x20)<br/><i>P1_1: Vol+ | P1_2: Vol- | P1_3: Mute</i>"]
+        LED["💡 WS2812 RGB LED Bar<br/>(GPIO 38)<br/><i>7-LED VU Level Bar & Status</i>"]
+        BOOT["🔘 BOOT Button<br/>(GPIO 0)"]
+    end
+
+    subgraph FW["🧠 ESP-IDF Firmware Engine (ESP32-S3)"]
+        direction TB
+        VAD["🎙️ 4-Channel Peak Beamforming VAD<br/><i>DMA Queue Flush | RMS >= 45.0f | 2.0s Min</i>"]
+        TASK_BTN["🔘 TCA9555 & GPIO Interrupt Task<br/><i>Polling P1_1, P1_2, P1_3, GPIO 0</i>"]
+        HTTP_CLIENT["🌐 ESP HTTP Streaming Client<br/><i>Header Parser (X-Set-Volume)</i>"]
+    end
+
+    subgraph BE["⚡ FastAPI Relay Server Backend (Port 8008)"]
+        direction TB
+        PROC["🔊 Audio Gain Normalizer<br/><i>Up to 8.0x Boost | WAV Wrapper</i>"]
+        PROMPT["📋 Clinical Persona Engine<br/><i>Samarth Dataset (patient_persona.json)</i>"]
+        TTS["🗣️ Edge-TTS Synthesis Engine<br/><i>Voice: en-US-AvaNeural (-30% Vol)</i>"]
+        INTENT["🎙️ Voice Volume Command Classifier<br/><i>Detects 'volume up', 'lower volume', 'mute'</i>"]
+    end
+
+    subgraph CLOUD["☁️ External Cloud Services"]
+        GEMINI["🧠 Google Gemini 3.1 Flash Lite API<br/><i>GenerateContentConfig system_instruction</i>"]
+    end
+
+    %% Flow connections
+    MIC --> VAD
+    VAD -->|"16kHz Mono PCM WAV"| PROC
+    PROC --> PROMPT
+    PROMPT -->|"Audio + System Instruction"| GEMINI
+    GEMINI -->|"Persona Answer Text"| TTS
+    PROMPT --> INTENT
+    INTENT -->|"Sets X-Set-Volume Header"| TTS
+    TTS -->|"16kHz Streaming PCM Audio"| HTTP_CLIENT
+    HTTP_CLIENT --> SPK
+    
+    TASK_BTN --> EXP
+    TASK_BTN --> BOOT
+    TASK_BTN -->|"Update DAC Gain & PCM Scaling"| SPK
+    TASK_BTN -->|"Update Visual Volume Bar"| LED
+    HTTP_CLIENT -->|"Parse X-Set-Volume Header"| TASK_BTN
 ```
 
 ---
