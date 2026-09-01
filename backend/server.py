@@ -190,7 +190,7 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
 
 async def text_to_pcm_16k(text: str) -> bytes:
     """Synthesizes text to speech and converts MP3 to 16kHz 16-bit Mono PCM using miniaudio."""
-    tts_voice = os.getenv("TTS_VOICE", "en-US-AvaNeural")
+    tts_voice = os.getenv("TTS_VOICE", "en-US-JennyNeural")
     tts_rate = os.getenv("TTS_RATE", "+0%")
     tts_volume = os.getenv("TTS_VOLUME", "-30%") # Lower default TTS volume
 
