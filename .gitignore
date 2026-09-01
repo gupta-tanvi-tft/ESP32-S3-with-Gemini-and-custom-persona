@@ -1,0 +1,29 @@
+# ESP-IDF Build Artifacts
+build/
+managed_components/
+.cache/
+.pio/
+sdkconfig.old
+*.bin
+*.elf
+*.map
+
+# Environment & Private Keys
+.env
+*.pem
+*.key
+
+# Python Cache & Media
+__pycache__/
+*.pyc
+*.wav
+*.mp3
+scratch/
+.venv/
+venv/
+
+# OS & IDE Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
