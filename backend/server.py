@@ -429,9 +429,13 @@ class GeminiLiveTransportSession:
     async def send_audio_chunk(self, pcm_bytes: bytes, mime_type: str = "audio/pcm;rate=16000"):
         if self.live_session and self.is_connected:
             from google.genai import types
-            await self.live_session.send_realtime_input(
-                audio=types.Blob(data=pcm_bytes, mime_type=mime_type)
-            )
+            try:
+                await self.live_session.send_realtime_input(
+                    audio=types.Blob(data=pcm_bytes, mime_type=mime_type)
+                )
+            except Exception as err:
+                logger.warning(f"Failed to send realtime audio chunk: {err}")
+                self.is_connected = False
 
     async def close(self):
         if self.live_session:
