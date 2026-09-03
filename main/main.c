@@ -81,21 +81,31 @@ typedef struct {
     bool is_playing;
 } ws_playback_ctx_t;
 
+static esp_websocket_client_handle_t s_persistent_ws_client = NULL;
+static bool s_ws_connected = false;
+
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
     ws_playback_ctx_t *ctx = (ws_playback_ctx_t *)handler_args;
 
     switch (event_id) {
         case WEBSOCKET_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "⚡ WebSocket Connected to Relay Server!");
+            s_ws_connected = true;
+            ESP_LOGI(TAG, "⚡ Persistent WebSocket Connected to Relay Server!");
             break;
         case WEBSOCKET_EVENT_DISCONNECTED:
-            ESP_LOGI(TAG, "⚡ WebSocket Disconnected");
+            s_ws_connected = false;
+            ESP_LOGI(TAG, "⚡ Persistent WebSocket Disconnected");
             break;
         case WEBSOCKET_EVENT_DATA:
             if (data->op_code == 0x01) { // Text JSON frame
                 ESP_LOGI(TAG, "📩 WS Metadata Received (%d bytes): %.*s", data->data_len, data->data_len, data->data_ptr);
-            } else if (data->op_code == 0x02 || data->op_code == 0x00) { // Binary PCM audio frame (or continuation)
+                if (strstr(data->data_ptr, "interrupted")) {
+                    extern bool s_barge_in_triggered;
+                    s_barge_in_triggered = true;
+                    ESP_LOGI(TAG, "⚡ [BARGE-IN] Interruption event received from server!");
+                }
+            } else if (data->op_code == 0x02 || data->op_code == 0x00) { // Binary PCM audio frame
                 if (data->data_len > 0 && ctx && ctx->play_dev) {
                     ctx->is_playing = true;
                     int current_vol = bsp_board_get_volume();
@@ -115,10 +125,51 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                 }
             }
             break;
-        case WEBSOCKET_EVENT_ERROR:
-            ESP_LOGE(TAG, "⚡ WebSocket Error");
-            break;
     }
+}
+
+static esp_err_t ensure_websocket_connected(ws_playback_ctx_t *ctx) {
+    if (s_persistent_ws_client != NULL && esp_websocket_client_is_connected(s_persistent_ws_client)) {
+        return ESP_OK;
+    }
+
+    char ws_url[160];
+    snprintf(ws_url, sizeof(ws_url), "ws://%s:%s/ws/live/%s", SERVER_IP, SERVER_PORT, SESSION_ID);
+    ESP_LOGI(TAG, "Establishing persistent Live WebSocket connection to: %s", ws_url);
+
+    esp_websocket_client_config_t ws_cfg = {
+        .uri = ws_url,
+        .buffer_size = 8192,
+        .reconnect_timeout_ms = 5000,
+        .network_timeout_ms = 8000,
+    };
+
+    if (s_persistent_ws_client != NULL) {
+        esp_websocket_client_stop(s_persistent_ws_client);
+        esp_websocket_client_destroy(s_persistent_ws_client);
+        s_persistent_ws_client = NULL;
+    }
+
+    s_persistent_ws_client = esp_websocket_client_init(&ws_cfg);
+    esp_websocket_register_events(s_persistent_ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, (void *)ctx);
+
+    esp_err_t err = esp_websocket_client_start(s_persistent_ws_client);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start persistent WebSocket: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    int wait_count = 0;
+    while (!esp_websocket_client_is_connected(s_persistent_ws_client) && wait_count++ < 80) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    if (!esp_websocket_client_is_connected(s_persistent_ws_client)) {
+        ESP_LOGE(TAG, "Persistent WebSocket connection handshake timed out!");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 }
 
 // Real-time audio streaming queue chunk definition (20ms per frame at 16kHz mono = 320 samples = 640 bytes)
@@ -142,52 +193,20 @@ static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_byt
 
     wav_header_t wav_hdr;
     create_wav_header(&wav_hdr, pcm_mono_bytes);
-    int total_wav_size = sizeof(wav_header_t) + pcm_mono_bytes;
-
-    char ws_url[160];
-    snprintf(ws_url, sizeof(ws_url), "ws://%s:%s/ws/live/%s", SERVER_IP, SERVER_PORT, SESSION_ID);
-    ESP_LOGI(TAG, "Connecting Live WebSocket to: %s (%d bytes payload)", ws_url, total_wav_size);
-
+    
     ws_playback_ctx_t ctx = {
         .play_dev = esp_ret_play_dev(),
         .total_audio_read = 0,
         .is_playing = false
     };
 
-    esp_websocket_client_config_t ws_cfg = {
-        .uri = ws_url,
-        .buffer_size = 8192,
-        .reconnect_timeout_ms = 10000,
-        .network_timeout_ms = 10000,
-    };
-
-    esp_websocket_client_handle_t client = esp_websocket_client_init(&ws_cfg);
-    esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, (void *)&ctx);
-
-    esp_err_t err = esp_websocket_client_start(client);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start Live WebSocket client: %s", esp_err_to_name(err));
-        esp_websocket_client_destroy(client);
-        rgb_led_set_all(255, 0, 0);
-        return;
-    }
-
-    // Wait for connection handshake (up to 8 seconds for SSL / Gemini API handshake)
-    int wait_count = 0;
-    while (!esp_websocket_client_is_connected(client) && wait_count++ < 80) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-
-    if (!esp_websocket_client_is_connected(client)) {
-        ESP_LOGE(TAG, "WebSocket handshake timed out!");
-        esp_websocket_client_stop(client);
-        esp_websocket_client_destroy(client);
+    if (ensure_websocket_connected(&ctx) != ESP_OK) {
         rgb_led_set_all(255, 0, 0);
         return;
     }
 
     // Send initial 44-byte WAV header binary frame
-    esp_websocket_client_send_bin(client, (const char *)&wav_hdr, sizeof(wav_header_t), portMAX_DELAY);
+    esp_websocket_client_send_bin(s_persistent_ws_client, (const char *)&wav_hdr, sizeof(wav_header_t), portMAX_DELAY);
     
     // Stream PCM Audio chunks from queue
     int bytes_sent = 0;
