@@ -21,7 +21,9 @@ logger = logging.getLogger("gemini-backend")
 
 # Verified list of valid models for this API Key
 FALLBACK_MODELS = [
-    os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+    os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
     "gemini-3.1-flash-lite"
 ]
 
@@ -428,7 +430,7 @@ class GeminiLiveTransportSession:
         if self.live_session and self.is_connected:
             from google.genai import types
             await self.live_session.send_realtime_input(
-                media_chunks=[types.Blob(data=pcm_bytes, mime_type=mime_type)]
+                media=types.Blob(data=pcm_bytes, mime_type=mime_type)
             )
 
     async def close(self):
