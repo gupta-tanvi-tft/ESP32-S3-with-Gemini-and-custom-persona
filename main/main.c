@@ -121,9 +121,23 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
     }
 }
 
+// Real-time audio streaming queue chunk definition (20ms per frame at 16kHz mono = 320 samples = 640 bytes)
+#define STREAM_FRAME_SAMPLES 320 
+#define STREAM_FRAME_BYTES   (STREAM_FRAME_SAMPLES * sizeof(int16_t))
+
+typedef struct {
+    int16_t pcm_data[STREAM_FRAME_SAMPLES];
+    uint16_t length_bytes;
+    bool is_speech;
+} audio_frame_t;
+
+static QueueHandle_t s_audio_stream_queue = NULL;
+static bool s_is_assistant_speaking = false;
+static bool s_barge_in_triggered = false;
+
 static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_bytes)
 {
-    ESP_LOGI(TAG, "⚡ Connecting to Gemini WebSocket Backend...");
+    ESP_LOGI(TAG, "⚡ Connecting to Gemini Live WebSocket Backend...");
     rgb_led_set_all(200, 150, 0); // Yellow = Thinking / Sending to Gemini
 
     wav_header_t wav_hdr;
@@ -131,8 +145,8 @@ static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_byt
     int total_wav_size = sizeof(wav_header_t) + pcm_mono_bytes;
 
     char ws_url[160];
-    snprintf(ws_url, sizeof(ws_url), "ws://%s:%s/ws/voice_dynamic/%s", SERVER_IP, SERVER_PORT, SESSION_ID);
-    ESP_LOGI(TAG, "Connecting WebSocket to: %s (%d bytes audio payload)", ws_url, total_wav_size);
+    snprintf(ws_url, sizeof(ws_url), "ws://%s:%s/ws/live/%s", SERVER_IP, SERVER_PORT, SESSION_ID);
+    ESP_LOGI(TAG, "Connecting Live WebSocket to: %s (%d bytes payload)", ws_url, total_wav_size);
 
     ws_playback_ctx_t ctx = {
         .play_dev = esp_ret_play_dev(),
@@ -150,7 +164,7 @@ static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_byt
 
     esp_err_t err = esp_websocket_client_start(client);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start WebSocket client: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to start Live WebSocket client: %s", esp_err_to_name(err));
         esp_websocket_client_destroy(client);
         rgb_led_set_all(255, 0, 0);
         return;
@@ -170,31 +184,41 @@ static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_byt
         return;
     }
 
-    // Send 44-byte WAV Header first as binary frame
-    ESP_LOGI(TAG, "Sending 44-byte WAV header + %d bytes PCM audio payload via WebSocket...", pcm_mono_bytes);
+    // Send initial 44-byte WAV header binary frame
     esp_websocket_client_send_bin(client, (const char *)&wav_hdr, sizeof(wav_header_t), portMAX_DELAY);
     
-    // Send PCM Audio payload directly without extra malloc allocation
-    esp_websocket_client_send_bin(client, (const char *)mono_pcm_buf, pcm_mono_bytes, portMAX_DELAY);
-
+    // Stream PCM Audio chunks from queue
+    int bytes_sent = 0;
+    while (bytes_sent < pcm_mono_bytes) {
+        int chunk = (pcm_mono_bytes - bytes_sent > 1024) ? 1024 : (pcm_mono_bytes - bytes_sent);
+        esp_websocket_client_send_bin(client, (const char *)mono_pcm_buf + (bytes_sent / 2), chunk, portMAX_DELAY);
+        bytes_sent += chunk;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 
     // Wait for Gemini response playback
+    s_is_assistant_speaking = true;
     rgb_led_set_all(0, 200, 0); // Green = Playing response
     int timeout_ticks = 0;
     while (timeout_ticks++ < 150) { // Up to 15 seconds wait
         vTaskDelay(pdMS_TO_TICKS(100));
+        if (s_barge_in_triggered) {
+            ESP_LOGI(TAG, "⚡ [BARGE-IN] Flushed playback due to user speech!");
+            break;
+        }
         if (ctx.is_playing && ctx.total_audio_read > 0 && timeout_ticks > 40) {
-            // Allow buffer to drain into codec before closing
-            vTaskDelay(pdMS_TO_TICKS(1500));
+            vTaskDelay(pdMS_TO_TICKS(1000));
             break;
         }
     }
 
-    ESP_LOGI(TAG, "Finished WebSocket response cycle (%d bytes played).", ctx.total_audio_read);
+    s_is_assistant_speaking = false;
+    s_barge_in_triggered = false;
+    ESP_LOGI(TAG, "Finished WebSocket Live response cycle (%d bytes played).", ctx.total_audio_read);
 
     esp_websocket_client_stop(client);
     esp_websocket_client_destroy(client);
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(300));
     rgb_led_clear();
 }
 

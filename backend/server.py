@@ -201,8 +201,8 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> d
                     transcription = res_json.get("transcription", "")
                     
                     # Detect garbled/unclear speech or empty transcription
-                    if not transcription or transcription.strip() in ["", "[unclear]", "[inaudible]", "noise"]:
-                        res_json["answer"] = "I couldn't quite hear you clearly. Could you please repeat that?"
+                    if not transcription or transcription.strip().lower() in ["", "[unclear]", "[inaudible]", "noise", "thank you", "sound", "voice query"]:
+                        res_json["answer"] = "I didn't quite catch that. Could you please speak clearly?"
                         res_json["response_mood"] = "empathetic_gentle"
 
                     logger.info(f" 🗣️ User Spoke: '{res_json.get('transcription')}' [User Emotion: {res_json.get('user_emotion')}]")
@@ -226,7 +226,7 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> d
         "transcription": "Error",
         "user_emotion": "concerned",
         "response_mood": "empathetic_gentle",
-        "answer": "I couldn't quite understand that. Could you please repeat and speak clearly?"
+        "answer": "I didn't catch that. Could you please repeat and speak clearly?"
     }
 
 async def text_to_pcm_16k(text: str, mood: str = "warm_clinical") -> bytes:
