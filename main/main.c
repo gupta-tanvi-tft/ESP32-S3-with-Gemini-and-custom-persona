@@ -156,7 +156,9 @@ static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_byt
 
     esp_websocket_client_config_t ws_cfg = {
         .uri = ws_url,
-        .buffer_size = 4096,
+        .buffer_size = 8192,
+        .reconnect_timeout_ms = 10000,
+        .network_timeout_ms = 10000,
     };
 
     esp_websocket_client_handle_t client = esp_websocket_client_init(&ws_cfg);
@@ -170,9 +172,9 @@ static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_byt
         return;
     }
 
-    // Wait briefly for connection handshake
+    // Wait for connection handshake (up to 8 seconds for SSL / Gemini API handshake)
     int wait_count = 0;
-    while (!esp_websocket_client_is_connected(client) && wait_count++ < 30) {
+    while (!esp_websocket_client_is_connected(client) && wait_count++ < 80) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
