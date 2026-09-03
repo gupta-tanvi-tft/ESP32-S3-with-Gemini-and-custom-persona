@@ -75,7 +75,7 @@
     },
     "care_team": {
       "assigned_doctor": {
-        "doctor_id": "6788b62688a19b5546fe8723",
+        "doctor_id": "673334d939a1270181963600",
         "name": "Samarth Gupta",
         "specialization": "Endocrinologist",
         "hospital_affiliation": []
@@ -110,7 +110,7 @@
         "note_id": "69ccc8dac363ab4e34d06c88",
         "note": "consulatation is completed",
         "timestamp": 1775028442,
-        "doctor_id": "6788b62688a19b5546fe8723"
+        "doctor_id": "673334d939a1270181963600"
       }
     },
     "engagement": {

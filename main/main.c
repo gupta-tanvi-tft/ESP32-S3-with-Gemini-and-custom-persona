@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_websocket_client.h"
 #include "bsp_board.h"
 #include "rgb_led_driver.h"
 #include "wifi_connect.h"
@@ -18,11 +19,12 @@ static const char *TAG = "GEMINI_ASSISTANT";
 // ==========================================================
 #define SERVER_IP   "192.168.50.53"  // Laptop IP address on WiFi network
 #define SERVER_PORT "8008"           // Relay server port
+#define SESSION_ID  "673334d939a1270181963600"
 
 #define MAX_RECORD_TIME_SEC 5        // Maximum 5 seconds duration (fits internal DRAM)
 #define MIN_SPEECH_MS       2000     // Record at least 2.0 seconds minimum
 #define SILENCE_TIMEOUT_MS  2000     // 2.0s silence cutoff
-#define VAD_THRESHOLD_RMS   45.0f    // Calibrated VAD threshold to reject speaker echo
+#define VAD_THRESHOLD_RMS   25.0f    // Sensitive VAD threshold to catch all spoken questions
 
 #define SAMPLE_RATE 16000
 #define CHANNELS    4                // ES7210 raw input channels
@@ -73,89 +75,129 @@ static float compute_pcm_rms(const int16_t *pcm_samples, int num_samples) {
     return (float)sqrt(sum_sq / num_samples);
 }
 
+typedef struct {
+    esp_codec_dev_handle_t play_dev;
+    int total_audio_read;
+    bool is_playing;
+} ws_playback_ctx_t;
+
+static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
+    esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
+    ws_playback_ctx_t *ctx = (ws_playback_ctx_t *)handler_args;
+
+    switch (event_id) {
+        case WEBSOCKET_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "⚡ WebSocket Connected to Relay Server!");
+            break;
+        case WEBSOCKET_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "⚡ WebSocket Disconnected");
+            break;
+        case WEBSOCKET_EVENT_DATA:
+            if (data->op_code == 0x01) { // Text JSON frame
+                ESP_LOGI(TAG, "📩 WS Metadata Received (%d bytes): %.*s", data->data_len, data->data_len, data->data_ptr);
+            } else if (data->op_code == 0x02 || data->op_code == 0x00) { // Binary PCM audio frame (or continuation)
+                if (data->data_len > 0 && ctx && ctx->play_dev) {
+                    ctx->is_playing = true;
+                    int current_vol = bsp_board_get_volume();
+                    float vol_scale = (float)current_vol / 100.0f;
+
+                    int16_t *pcm_samples = (int16_t *)data->data_ptr;
+                    int num_samples = data->data_len / sizeof(int16_t);
+                    for (int i = 0; i < num_samples; i++) {
+                        int32_t sample = (int32_t)(pcm_samples[i] * vol_scale);
+                        if (sample > 32767) sample = 32767;
+                        if (sample < -32768) sample = -32768;
+                        pcm_samples[i] = (int16_t)sample;
+                    }
+
+                    esp_codec_dev_write(ctx->play_dev, (void *)pcm_samples, data->data_len);
+                    ctx->total_audio_read += data->data_len;
+                }
+            }
+            break;
+        case WEBSOCKET_EVENT_ERROR:
+            ESP_LOGE(TAG, "⚡ WebSocket Error");
+            break;
+    }
+}
+
 static void send_audio_and_play_response(int16_t *mono_pcm_buf, int pcm_mono_bytes)
 {
-    ESP_LOGI(TAG, "Connecting to Gemini Relay Backend...");
+    ESP_LOGI(TAG, "⚡ Connecting to Gemini WebSocket Backend...");
     rgb_led_set_all(200, 150, 0); // Yellow = Thinking / Sending to Gemini
 
     wav_header_t wav_hdr;
     create_wav_header(&wav_hdr, pcm_mono_bytes);
-
     int total_wav_size = sizeof(wav_header_t) + pcm_mono_bytes;
 
-    char url[128];
-    snprintf(url, sizeof(url), "http://%s:%s/api/chat-audio", SERVER_IP, SERVER_PORT);
-    ESP_LOGI(TAG, "Sending audio payload to: %s (%d bytes, %.2fs duration)", url, total_wav_size, (float)pcm_mono_bytes / (SAMPLE_RATE * 2));
+    char ws_url[160];
+    snprintf(ws_url, sizeof(ws_url), "ws://%s:%s/ws/voice_dynamic/%s", SERVER_IP, SERVER_PORT, SESSION_ID);
+    ESP_LOGI(TAG, "Connecting WebSocket to: %s (%d bytes audio payload)", ws_url, total_wav_size);
 
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 15000,
-        .buffer_size = 2048,
+    ws_playback_ctx_t ctx = {
+        .play_dev = esp_ret_play_dev(),
+        .total_audio_read = 0,
+        .is_playing = false
     };
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_set_header(client, "Content-Type", "audio/wav");
+    esp_websocket_client_config_t ws_cfg = {
+        .uri = ws_url,
+        .buffer_size = 4096,
+    };
 
-    esp_err_t err = esp_http_client_open(client, total_wav_size);
+    esp_websocket_client_handle_t client = esp_websocket_client_init(&ws_cfg);
+    esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, (void *)&ctx);
+
+    esp_err_t err = esp_websocket_client_start(client);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
-        esp_http_client_cleanup(client);
+        ESP_LOGE(TAG, "Failed to start WebSocket client: %s", esp_err_to_name(err));
+        esp_websocket_client_destroy(client);
         rgb_led_set_all(255, 0, 0);
         return;
     }
 
-    // Write 44-byte WAV header directly
-    esp_http_client_write(client, (const char *)&wav_hdr, sizeof(wav_header_t));
-
-    // Write Mono PCM Audio Buffer directly
-    int wlen = esp_http_client_write(client, (const char *)mono_pcm_buf, pcm_mono_bytes);
-    ESP_LOGI(TAG, "Sent %d bytes PCM payload to server.", wlen);
-
-    int content_length = esp_http_client_fetch_headers(client);
-    int status_code = esp_http_client_get_status_code(client);
-    ESP_LOGI(TAG, "HTTP Response Status Code: %d, Content Length: %d", status_code, content_length);
-
-    if (status_code == 200) {
-        rgb_led_set_all(0, 200, 0); // Green = Playing Gemini Speaker Response
-
-        char response_buf[1024];
-        esp_codec_dev_handle_t play_dev = esp_ret_play_dev();
-        int total_read = 0;
-
-        while (1) {
-            int read_len = esp_http_client_read(client, response_buf, sizeof(response_buf));
-            if (read_len <= 0) {
-                break;
-            }
-            total_read += read_len;
-
-            // Apply real-time hardware volume scaling to output PCM samples
-            int current_vol = bsp_board_get_volume();
-            float vol_scale = (float)current_vol / 100.0f;
-            int16_t *pcm_samples = (int16_t *)response_buf;
-            int num_samples = read_len / sizeof(int16_t);
-            for (int i = 0; i < num_samples; i++) {
-                int32_t sample = (int32_t)(pcm_samples[i] * vol_scale);
-                if (sample > 32767) sample = 32767;
-                if (sample < -32768) sample = -32768;
-                pcm_samples[i] = (int16_t)sample;
-            }
-
-            if (play_dev) {
-                esp_codec_dev_write(play_dev, response_buf, read_len);
-            }
-        }
-        ESP_LOGI(TAG, "Finished playing Gemini audio response (%d bytes).", total_read);
-    } else {
-        ESP_LOGE(TAG, "Server returned HTTP status %d", status_code);
-        rgb_led_set_all(255, 0, 0);
+    // Wait briefly for connection handshake
+    int wait_count = 0;
+    while (!esp_websocket_client_is_connected(client) && wait_count++ < 30) {
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    esp_http_client_cleanup(client);
+    if (!esp_websocket_client_is_connected(client)) {
+        ESP_LOGE(TAG, "WebSocket handshake timed out!");
+        esp_websocket_client_stop(client);
+        esp_websocket_client_destroy(client);
+        rgb_led_set_all(255, 0, 0);
+        return;
+    }
+
+    // Send 44-byte WAV Header first as binary frame
+    ESP_LOGI(TAG, "Sending 44-byte WAV header + %d bytes PCM audio payload via WebSocket...", pcm_mono_bytes);
+    esp_websocket_client_send_bin(client, (const char *)&wav_hdr, sizeof(wav_header_t), portMAX_DELAY);
+    
+    // Send PCM Audio payload directly without extra malloc allocation
+    esp_websocket_client_send_bin(client, (const char *)mono_pcm_buf, pcm_mono_bytes, portMAX_DELAY);
+
+
+    // Wait for Gemini response playback
+    rgb_led_set_all(0, 200, 0); // Green = Playing response
+    int timeout_ticks = 0;
+    while (timeout_ticks++ < 150) { // Up to 15 seconds wait
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (ctx.is_playing && ctx.total_audio_read > 0 && timeout_ticks > 40) {
+            // Allow buffer to drain into codec before closing
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            break;
+        }
+    }
+
+    ESP_LOGI(TAG, "Finished WebSocket response cycle (%d bytes played).", ctx.total_audio_read);
+
+    esp_websocket_client_stop(client);
+    esp_websocket_client_destroy(client);
     vTaskDelay(pdMS_TO_TICKS(500));
     rgb_led_clear();
 }
+
 
 /**
  * Record speech into mono_buf using VAD.

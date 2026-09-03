@@ -129,31 +129,20 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
     client = genai.Client(api_key=api_key)
 
     system_instruction = (
-        "STRICT SYSTEM INSTRUCTIONS:\n"
-        "You are an AI personal healthcare voice assistant for the patient Samarth.\n"
-        "1. Listen carefully to the user's spoken audio prompt.\n"
-        "2. Identify what specific topic or question the user asked (e.g., doctor's name, weight, HbA1c, medications, symptoms, glucose, steps, lab results, etc.).\n"
-        "3. Answer ONLY the specific question asked by the user strictly using the data in Samarth's health record below.\n"
-        "4. Do NOT invent facts or repeat weight if the user asked a different question.\n"
-        "5. Keep your response empathetic, direct, and concise (1-2 sentences) for smart speaker voice playback.\n\n"
-        "SAMARTH'S CLINICAL HEALTH RECORD:\n"
-        "• Identity: Samarth (Age 31, Male, DOB: 07/05/1995)\n"
-        "• Current Weight: 70 kg (Weight Loss: 16.2 kg, Trend: Decreasing)\n"
-        "• Height: 180.34 cm | BMI: 48 (Obese) | Body Fat: 20% | Muscle Mass: 16 kg\n"
-        "• HbA1c: 5.52% (Previous lab: 6.6%)\n"
-        "• Assigned Doctor: Dr. Samarth Gupta (Endocrinologist) | Doctor Note: 'consultation is completed'\n"
-        "• Active Medication: Paracetamol (Taken 0 times, 100% missed adherence rate)\n"
-        "• Symptoms: Excessive thirst (Severity 8/10)\n"
-        "• Glucometer: Last reading 125 mg/dL (Post Dinner). Flagged High: 405 mg/dL (Pre Dinner)\n"
-        "• CGM Average Glucose: 131 mg/dL (Time in Range 56.5%)\n"
-        "• Lab Reports: Hemoglobin 13.3 g/dL, Cholesterol 109 mg/dL, Triglycerides 217 mg/dL (Elevated High)\n"
-        "• Vitals: Pulse 79 bpm, Respiration 19 rpm, O2 Saturation 99%\n"
-        "• Activity: Daily Steps 3,694 steps, Active Calories 1,115 kcal\n\n"
-        "FULL PATIENT PERSONA JSON DATA:\n"
+        "STRICT CLINICAL VOICE ASSISTANT INSTRUCTIONS:\n"
+        f"You are an AI personal clinical healthcare assistant speaking directly to {patient_name}.\n"
+        "1. Listen carefully to the user's spoken voice query.\n"
+        "2. Identify the exact health topic or data point asked (e.g., doctor ID/name, HbA1c, blood glucose, heart rate/pulse, medications, step count, calories, lab reports, doctor notes, etc.).\n"
+        "3. Search the PATIENT PERSONA RECORD below and extract exact, accurate details (specific names, IDs, dates, numbers, units, and clinical metrics).\n"
+        "4. Format your response strictly as:\n"
+        "   TRANSCRIPTION: <exact transcribed user question>\n"
+        "   ANSWER: <clear, accurate, and direct 1-3 sentence voice response with exact data points from the patient's record>\n"
+        "5. Do NOT invent information. If a field is not present in the record, state that it is not currently recorded.\n\n"
+        "PATIENT PERSONA RECORD:\n"
         f"{persona_str}\n"
     )
 
-    user_content_prompt = "Listen to the user's voice audio, transcribe their specific question, and answer it directly using Samarth's patient persona record."
+    user_content_prompt = f"Listen to the spoken audio, transcribe it as TRANSCRIPTION:, and answer as ANSWER: using {patient_name}'s health record."
 
     tried_models = set()
     for model_name in FALLBACK_MODELS:
@@ -174,13 +163,20 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
                 ],
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    temperature=0.2,
+                    temperature=0.1,
                 )
             )
             if response.text:
                 text_reply = response.text.strip()
-                logger.info(f"✅ Gemini ('{model_name}') Response: '{text_reply}'")
-                return text_reply
+                if "TRANSCRIPTION:" in text_reply and "ANSWER:" in text_reply:
+                    transcription = text_reply.split("TRANSCRIPTION:")[1].split("ANSWER:")[0].strip()
+                    answer = text_reply.split("ANSWER:")[1].strip()
+                    logger.info(f"🎙️ User Spoke: '{transcription}'")
+                    logger.info(f"✅ Gemini Answer: '{answer}'")
+                    return answer
+                else:
+                    logger.info(f"✅ Gemini Response: '{text_reply}'")
+                    return text_reply
         except Exception as e:
             logger.warning(f"Model '{model_name}' failed: {e}. Trying next fallback...")
             await asyncio.sleep(0.3)
@@ -191,8 +187,8 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
 async def text_to_pcm_16k(text: str) -> bytes:
     """Synthesizes text to speech and converts MP3 to 16kHz 16-bit Mono PCM using miniaudio."""
     tts_voice = os.getenv("TTS_VOICE", "en-US-AriaNeural")
-    tts_rate = os.getenv("TTS_RATE", "+0%")
-    tts_volume = os.getenv("TTS_VOLUME", "-30%") # Lower default TTS volume
+    tts_rate = os.getenv("TTS_RATE", "+5%")
+    tts_volume = os.getenv("TTS_VOLUME", "-10%")
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as mp3_temp:
         mp3_path = mp3_temp.name
@@ -214,10 +210,10 @@ async def text_to_pcm_16k(text: str) -> bytes:
             16000   # 16kHz sample rate
         )
 
-        # Scale down PCM amplitude by 50% for softer speaker playback
+        # Boost PCM amplitude scaling to 85% for energetic, crisp speaker playback
         count = len(pcm_bytes) // 2
         samples = struct.unpack(f"<{count}h", pcm_bytes)
-        scaled_samples = [int(s * 0.5) for s in samples]
+        scaled_samples = [max(-32768, min(32767, int(s * 0.85))) for s in samples]
         pcm_bytes = struct.pack(f"<{count}h", *scaled_samples)
 
         logger.info(f"🔊 Generated {len(pcm_bytes)} bytes of 16kHz Mono PCM for ESP32 speaker (Volume scaled down 50%).")
