@@ -430,7 +430,7 @@ class GeminiLiveTransportSession:
         if self.live_session and self.is_connected:
             from google.genai import types
             await self.live_session.send_realtime_input(
-                media=types.Blob(data=pcm_bytes, mime_type=mime_type)
+                audio=types.Blob(data=pcm_bytes, mime_type=mime_type)
             )
 
     async def close(self):
