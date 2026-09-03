@@ -6,7 +6,7 @@ import tempfile
 import logging
 import struct
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request, Response, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import edge_tts
@@ -21,10 +21,7 @@ logger = logging.getLogger("gemini-backend")
 
 # Verified list of valid models for this API Key
 FALLBACK_MODELS = [
-    os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-2.5-flash",
+    os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
     "gemini-3.1-flash-lite"
 ]
 
@@ -106,8 +103,14 @@ def pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int = 1, sam
         wav_file.writeframes(pcm_data)
     return wav_buf.getvalue()
 
-async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
-    """Calls Gemini REST API using valid fallback models with strict Patient Persona context."""
+async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> dict:
+    """
+    Analyzes user spoken audio with Gemini 3.1:
+    1. Transcribes spoken question
+    2. Performs emotion & intent detection from audio tone
+    3. Derives human-like clinical response strictly from patient record
+    4. Determines target voice emotion (celebratory, calm_reassuring, empathetic_gentle, warm_clinical)
+    """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or api_key == "YOUR_GEMINI_API_KEY_HERE":
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not set in .env")
@@ -115,11 +118,16 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
     # Load Patient Persona JSON context
     persona_path = os.path.join(os.path.dirname(__file__), "patient_persona.json")
     persona_str = ""
+    patient_name = "the patient"
+    
     if os.path.exists(persona_path):
         try:
             with open(persona_path, "r", encoding="utf-8") as f:
                 persona_str = f.read()
-            logger.info("📋 Loaded Patient Persona ('patient_persona.json') into Gemini Prompt.")
+            import json
+            p_data = json.loads(persona_str).get("data", {})
+            identity = p_data.get("identity", {})
+            patient_name = identity.get("first_name", "the patient")
         except Exception as e:
             logger.warning(f"Could not load patient_persona.json: {e}")
 
@@ -129,20 +137,29 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
     client = genai.Client(api_key=api_key)
 
     system_instruction = (
-        "STRICT CLINICAL VOICE ASSISTANT INSTRUCTIONS:\n"
-        f"You are an AI personal clinical healthcare assistant speaking directly to {patient_name}.\n"
-        "1. Listen carefully to the user's spoken voice query.\n"
-        "2. Identify the exact health topic or data point asked (e.g., doctor ID/name, HbA1c, blood glucose, heart rate/pulse, medications, step count, calories, lab reports, doctor notes, etc.).\n"
-        "3. Search the PATIENT PERSONA RECORD below and extract exact, accurate details (specific names, IDs, dates, numbers, units, and clinical metrics).\n"
-        "4. Format your response strictly as:\n"
-        "   TRANSCRIPTION: <exact transcribed user question>\n"
-        "   ANSWER: <clear, accurate, and direct 1-3 sentence voice response with exact data points from the patient's record>\n"
-        "5. Do NOT invent information. If a field is not present in the record, state that it is not currently recorded.\n\n"
+        "STRICT HUMAN VOICE INTELLIGENCE & CLINICAL ASSISTANT INSTRUCTIONS:\n"
+        f"You are a human-like, highly empathetic clinical voice companion speaking directly to {patient_name}.\n"
+        "Analyze both the spoken content AND the tone of the user's voice.\n"
+        "1. Identify the exact clinical health topic or question asked (doctor name/ID, HbA1c, glucose, vitals, step count, medications, lab reports, doctor notes, etc.).\n"
+        "2. Extract accurate exact values from the PATIENT PERSONA RECORD below.\n"
+        "3. Determine the user's emotion/tone (`happy`, `anxious`, `concerned`, `pain`, `neutral`, `curious`).\n"
+        "4. Determine the best voice response mood for speech synthesis (`celebratory`, `calm_reassuring`, `empathetic_gentle`, `warm_clinical`).\n"
+        "   - Use `celebratory` for positive achievements (great step count, lowered HbA1c, healthy glucose).\n"
+        "   - Use `calm_reassuring` for user anxiety, elevated glucose spikes, or high blood pressure.\n"
+        "   - Use `empathetic_gentle` for pain, discomfort, or missed medication notes.\n"
+        "   - Use `warm_clinical` for general informative questions.\n"
+        "5. Respond STRICTLY in valid JSON format:\n"
+        "{\n"
+        '  "transcription": "<exact transcribed user question>",\n'
+        '  "user_emotion": "<detected emotion>",\n'
+        '  "response_mood": "<celebratory | calm_reassuring | empathetic_gentle | warm_clinical>",\n'
+        '  "answer": "<warm, natural, 1-3 sentence conversational response with exact data values>"\n'
+        "}\n\n"
         "PATIENT PERSONA RECORD:\n"
         f"{persona_str}\n"
     )
 
-    user_content_prompt = f"Listen to the spoken audio, transcribe it as TRANSCRIPTION:, and answer as ANSWER: using {patient_name}'s health record."
+    user_content_prompt = f"Listen to the spoken audio, perceive user tone, transcribe as transcription, determine response_mood, and answer as answer in JSON format."
 
     tried_models = set()
     for model_name in FALLBACK_MODELS:
@@ -151,7 +168,7 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
         tried_models.add(model_name)
 
         try:
-            logger.info(f"Sending {len(audio_bytes)} bytes audio to Gemini Model '{model_name}' with System Instruction...")
+            logger.info(f"Sending {len(audio_bytes)} bytes audio to Gemini Model '{model_name}' for Human Voice & Persona Reasoning...")
             response = client.models.generate_content(
                 model=model_name,
                 contents=[
@@ -163,39 +180,85 @@ async def call_gemini_api(audio_bytes: bytes, mime_type: str = "audio/wav") -> s
                 ],
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    temperature=0.1,
+                    temperature=0.2,
                 )
             )
             if response.text:
-                text_reply = response.text.strip()
-                if "TRANSCRIPTION:" in text_reply and "ANSWER:" in text_reply:
-                    transcription = text_reply.split("TRANSCRIPTION:")[1].split("ANSWER:")[0].strip()
-                    answer = text_reply.split("ANSWER:")[1].strip()
-                    logger.info(f"🎙️ User Spoke: '{transcription}'")
-                    logger.info(f"✅ Gemini Answer: '{answer}'")
-                    return answer
-                else:
-                    logger.info(f"✅ Gemini Response: '{text_reply}'")
-                    return text_reply
+                import json
+                raw_text = response.text.strip()
+                # Clean markdown json fences if present
+                if raw_text.startswith("```json"):
+                    raw_text = raw_text[7:]
+                if raw_text.endswith("```"):
+                    raw_text = raw_text[:-3]
+                raw_text = raw_text.strip()
+
+                try:
+                    res_json = json.loads(raw_text)
+                    logger.info(f" 🗣️ User Spoke: '{res_json.get('transcription')}' [User Emotion: {res_json.get('user_emotion')}]")
+                    logger.info(f" 🧠 Gemini Response Mood: '{res_json.get('response_mood')}'")
+                    logger.info(f" 💬 Gemini Answer: '{res_json.get('answer')}'")
+                    return res_json
+                except Exception:
+                    logger.info(f" Gemini Text (Non-JSON fallback): '{raw_text}'")
+                    return {
+                        "transcription": "Voice Query",
+                        "user_emotion": "neutral",
+                        "response_mood": "warm_clinical",
+                        "answer": raw_text
+                    }
         except Exception as e:
             logger.warning(f"Model '{model_name}' failed: {e}. Trying next fallback...")
             await asyncio.sleep(0.3)
 
     logger.error("All Gemini API model attempts failed!")
-    return "Sorry, I had trouble reaching Gemini."
+    return {
+        "transcription": "Error",
+        "user_emotion": "concerned",
+        "response_mood": "calm_reassuring",
+        "answer": "I'm right here with you, but I had a brief glitch connecting to Gemini. Please ask me again."
+    }
 
-async def text_to_pcm_16k(text: str) -> bytes:
-    """Synthesizes text to speech and converts MP3 to 16kHz 16-bit Mono PCM using miniaudio."""
-    tts_voice = os.getenv("TTS_VOICE", "en-US-AriaNeural")
-    tts_rate = os.getenv("TTS_RATE", "+5%")
-    tts_volume = os.getenv("TTS_VOLUME", "-10%")
+async def text_to_pcm_16k(text: str, mood: str = "warm_clinical") -> bytes:
+    """
+    Synthesizes speech using mood-adaptive SSML voice parameters (pitch, rate, volume)
+    and converts MP3 to 16kHz 16-bit Mono PCM for ESP32 playback.
+    """
+    base_voice = os.getenv("TTS_VOICE", "en-US-AriaNeural")
+    
+    # Configure dynamic SSML voice parameters based on emotional mood
+    if mood == "celebratory":
+        rate = "+8%"
+        pitch = "+3Hz"
+        volume = "+5%"
+    elif mood == "calm_reassuring":
+        rate = "-8%"
+        pitch = "-2Hz"
+        volume = "-5%"
+    elif mood == "empathetic_gentle":
+        rate = "-5%"
+        pitch = "-1Hz"
+        volume = "-8%"
+    else: # warm_clinical
+        rate = "+3%"
+        pitch = "+0Hz"
+        volume = "-10%"
+
+    # Build SSML string for human expressive vocal contour
+    ssml_text = f"""<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
+    <voice name='{base_voice}'>
+        <prosody rate='{rate}' pitch='{pitch}' volume='{volume}'>
+            {text}
+        </prosody>
+    </voice>
+</speak>"""
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as mp3_temp:
         mp3_path = mp3_temp.name
 
     try:
-        logger.info(f"Synthesizing TTS (Voice='{tts_voice}', Rate='{tts_rate}', Volume='{tts_volume}') for: '{text}'")
-        communicate = edge_tts.Communicate(text, voice=tts_voice, rate=tts_rate, volume=tts_volume)
+        logger.info(f"Synthesizing Dynamic SSML Voice [Mood='{mood}', Voice='{base_voice}', Rate='{rate}', Pitch='{pitch}']")
+        communicate = edge_tts.Communicate(ssml_text, voice=base_voice)
         await communicate.save(mp3_path)
 
         # Decode MP3 and convert to 16kHz 1-channel SIGNED16 PCM for ESP32 speaker
@@ -210,18 +273,27 @@ async def text_to_pcm_16k(text: str) -> bytes:
             16000   # 16kHz sample rate
         )
 
-        # Boost PCM amplitude scaling to 85% for energetic, crisp speaker playback
+        # Apply energetic amplitude scaling for crisp playback
         count = len(pcm_bytes) // 2
         samples = struct.unpack(f"<{count}h", pcm_bytes)
         scaled_samples = [max(-32768, min(32767, int(s * 0.85))) for s in samples]
         pcm_bytes = struct.pack(f"<{count}h", *scaled_samples)
 
-        logger.info(f"🔊 Generated {len(pcm_bytes)} bytes of 16kHz Mono PCM for ESP32 speaker (Volume scaled down 50%).")
+        logger.info(f" Generated {len(pcm_bytes)} bytes of mood-modulated 16kHz PCM audio.")
         return pcm_bytes
     except Exception as err:
         logger.error(f"Error converting TTS audio to PCM: {err}", exc_info=True)
-        with open(mp3_path, "rb") as f:
-            return f.read()
+        # Fallback to plain text TTS if SSML fails
+        try:
+            communicate = edge_tts.Communicate(text, voice=base_voice)
+            await communicate.save(mp3_path)
+            decoded = miniaudio.decode_file(mp3_path)
+            return miniaudio.convert_frames(
+                decoded.sample_format, decoded.nchannels, decoded.sample_rate,
+                bytes(decoded.samples), miniaudio.SampleFormat.SIGNED16, 1, 16000
+            )
+        except Exception:
+            return b""
     finally:
         if os.path.exists(mp3_path):
             os.remove(mp3_path)
@@ -247,14 +319,16 @@ async def chat_audio(request: Request):
     processed_pcm = process_audio_pcm(pcm_payload)
     wav_bytes = pcm_to_wav(processed_pcm, sample_rate=16000, channels=1, sample_width=2)
 
-    # 1. Call Gemini Model
-    gemini_text = await call_gemini_api(wav_bytes, mime_type="audio/wav")
+    # 1. Call Gemini Model API (Perceives user emotion & derives persona answer)
+    gemini_res = await call_gemini_api(wav_bytes, mime_type="audio/wav")
+    answer_text = gemini_res.get("answer", "I'm here to help you.")
+    response_mood = gemini_res.get("response_mood", "warm_clinical")
 
-    # 2. Text to Speech (Converted to 16kHz Mono PCM)
-    pcm_audio_output = await text_to_pcm_16k(gemini_text)
+    # 2. Text to Speech (Converted to 16kHz Mono PCM with SSML voice mood)
+    pcm_audio_output = await text_to_pcm_16k(answer_text, mood=response_mood)
 
     # 3. Detect Voice Volume Control Commands
-    lower_text = gemini_text.lower()
+    lower_text = answer_text.lower()
     set_vol_header = None
 
     if "mute" in lower_text or "silent" in lower_text:
@@ -265,10 +339,11 @@ async def chat_audio(request: Request):
         set_vol_header = "35"
 
     # Strip non-latin1 characters for HTTP headers
-    safe_header_text = gemini_text.replace("\n", " ").encode("ascii", "ignore").decode("ascii")
+    safe_header_text = answer_text.replace("\n", " ").encode("ascii", "ignore").decode("ascii")
 
     headers = {
         "X-Gemini-Text": safe_header_text,
+        "X-Response-Mood": response_mood,
         "Content-Length": str(len(pcm_audio_output))
     }
     if set_vol_header:
@@ -281,8 +356,107 @@ async def chat_audio(request: Request):
         headers=headers
     )
 
+@app.websocket("/ws/voice_dynamic/{session_id}")
+@app.websocket("/ws/voice_dynamic")
+async def websocket_voice_dynamic(websocket: WebSocket, session_id: str = "default"):
+    """
+    WebSocket WS/WSS Endpoint: /ws/voice_dynamic/{session_id}
+    Receives PCM/WAV binary audio frames from ESP32 or web clients over persistent socket.
+    Sends back text metadata as JSON and 16kHz 16-bit Mono PCM audio bytes to the speaker.
+    """
+    await websocket.accept()
+    logger.info(f"🟢 [STATE: READY] WebSocket connected (session_id: '{session_id}'). Client can SPEAK now.")
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                logger.info(f"🔴 [STATE: DISCONNECTED] WebSocket client disconnected (session_id: '{session_id}').")
+                break
+
+            if "bytes" in message and message["bytes"]:
+                data = message["bytes"]
+            elif "text" in message and message["text"]:
+                logger.info(f"[{session_id}] Received text WS frame: {message['text']}")
+                continue
+            else:
+                continue
+
+            # If client sends a 44-byte WAV header first frame, receive next frame for PCM body
+            if len(data) == 44 and data.startswith(b"RIFF"):
+                logger.info(f"[{session_id}] Received WAV header frame, waiting for PCM payload frame...")
+                next_msg = await websocket.receive()
+                if "bytes" in next_msg and next_msg["bytes"]:
+                    data = data + next_msg["bytes"]
+
+            if len(data) < 100:
+                logger.warning(f"[{session_id}] Received audio payload too small ({len(data)} bytes), skipping...")
+                continue
+
+            logger.info(f" [STATE: RECORDED] [{session_id}] Received {len(data)} bytes audio. DO NOT SPEAK - Processing with Gemini...")
+
+            # Extract PCM payload if header is WAV (RIFF)
+            pcm_payload = data[44:] if data.startswith(b"RIFF") else data
+
+
+            # 3. Audio gain normalization & WAV wrapping for Gemini
+            processed_pcm = process_audio_pcm(pcm_payload)
+            wav_bytes = pcm_to_wav(processed_pcm, sample_rate=16000, channels=1, sample_width=2)
+
+            # 4. Call Gemini Model API (Perceives user emotion & derives persona answer)
+            logger.info(f"🧠 [STATE: THINKING] Processing human voice & persona for [{session_id}]...")
+            gemini_res = await call_gemini_api(wav_bytes, mime_type="audio/wav")
+
+            answer_text = gemini_res.get("answer", "I'm here to help you.")
+            response_mood = gemini_res.get("response_mood", "warm_clinical")
+            user_emotion = gemini_res.get("user_emotion", "neutral")
+
+            # 5. Synthesize mood-modulated SSML TTS to 16kHz 16-bit Mono PCM
+            logger.info(f"🔊 [STATE: SYNTHESIZING] Converting response to '{response_mood}' SSML speech...")
+            pcm_audio_output = await text_to_pcm_16k(answer_text, mood=response_mood)
+
+            # 6. Detect volume control commands
+            lower_text = answer_text.lower()
+            vol_command = None
+            if "mute" in lower_text or "silent" in lower_text:
+                vol_command = 0
+            elif "increase volume" in lower_text or "volume up" in lower_text or "louder" in lower_text:
+                vol_command = 85
+            elif "lower volume" in lower_text or "volume down" in lower_text or "softer" in lower_text or "quiet" in lower_text:
+                vol_command = 35
+
+            # 7. Send JSON metadata frame first
+            meta_payload = {
+                "event": "response",
+                "state": "speaking",
+                "session_id": session_id,
+                "text": answer_text,
+                "user_emotion": user_emotion,
+                "response_mood": response_mood,
+                "audio_bytes": len(pcm_audio_output)
+            }
+            if vol_command is not None:
+                meta_payload["set_volume"] = vol_command
+
+            await websocket.send_json(meta_payload)
+
+            # 8. Send raw PCM audio binary frame to ESP32 speaker
+            logger.info(f"📢 [STATE: SPEAKING] [{session_id}] Streaming {len(pcm_audio_output)} bytes ({response_mood}) audio to speaker.")
+            await websocket.send_bytes(pcm_audio_output)
+            logger.info(f"🟢 [STATE: READY] [{session_id}] Finished playing response. Client can SPEAK now.")
+
+
+    except WebSocketDisconnect:
+        logger.info(f" WebSocket client disconnected (session_id: '{session_id}')")
+    except Exception as e:
+        logger.error(f" [{session_id}] WebSocket error: {e}", exc_info=True)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8008))
-    logger.info(f"🚀 Starting server on port {port}...")
+    logger.info(f" Starting server on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)
