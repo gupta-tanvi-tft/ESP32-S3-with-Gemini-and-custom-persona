@@ -117,6 +117,9 @@ static esp_err_t bsp_i2s_init(int i2s_num, uint32_t sample_rate, int channel_for
     i2s_slot_mode_t channel_fmt = I2S_SLOT_MODE_STEREO;
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(i2s_num, I2S_ROLE_MASTER);
+    chan_cfg.dma_desc_num = 8;
+    chan_cfg.dma_frame_num = 256;
+    chan_cfg.auto_clear_after_cb = true;
     ret_val |= i2s_new_channel(&chan_cfg, &tx_handle, &rx_handle);
 
     i2s_std_config_t std_cfg = {
@@ -219,7 +222,7 @@ esp_err_t bsp_codec_dac_init(int sample_rate, int channel_format, int bits_per_c
         .channel = channel_format,
         .bits_per_sample = bits_per_chan,
     };
-    esp_codec_dev_set_out_vol(play_dev, 80);
+    esp_codec_dev_set_out_vol(play_dev, PLAYER_VOLUME);
     esp_codec_dev_open(play_dev, &fs);
 
     ESP_LOGI(TAG, "ES8311 DAC Speaker Codec initialized successfully!");
@@ -249,7 +252,7 @@ int esp_get_feed_channel(void)
     return ADC_I2S_CHANNEL;
 }
 
-static int s_current_volume = 70;
+static int s_current_volume = PLAYER_VOLUME;
 
 esp_err_t bsp_board_set_volume(int volume)
 {
@@ -282,7 +285,7 @@ esp_err_t esp_board_init(uint32_t sample_rate, int channel_format, int bits_per_
     bsp_codec_adc_init(16000);
     bsp_codec_dac_init(16000, 1, 16);
 
-    bsp_board_set_volume(70);
+    bsp_board_set_volume(PLAYER_VOLUME);
 
     return ESP_OK;
 }

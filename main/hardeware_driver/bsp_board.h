@@ -29,8 +29,8 @@ extern "C" {
 #define GPIO_I2S_SDIN       (GPIO_NUM_15)
 #define GPIO_I2S_DOUT       (GPIO_NUM_16)
 
-#define RECORD_VOLUME       (65.0)
-#define PLAYER_VOLUME       (60)
+#define RECORD_VOLUME       (24.0)
+#define PLAYER_VOLUME       (40)
 
 #define LED_STRIP_GPIO_PIN  38
 #define LED_STRIP_LED_COUNT 7
