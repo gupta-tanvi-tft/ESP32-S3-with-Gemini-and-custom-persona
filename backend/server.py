@@ -1,6 +1,7 @@
 import os
 import io
 import wave
+import math
 import asyncio
 import tempfile
 import logging
@@ -9,8 +10,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-import edge_tts
-import miniaudio
 
 # Load .env file
 load_dotenv()
@@ -37,7 +36,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"✅ GEMINI_API_KEY is VALID & ACTIVE. Primary Model: '{FALLBACK_MODELS[0]}'")
     yield
 
-app = FastAPI(title="ESP32-S3 Gemini Voice Assistant Relay", lifespan=lifespan)
+app = FastAPI(title="ESP32-S3 Gemini Voice Assistant", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -236,25 +235,29 @@ async def text_to_pcm_16k(text: str, mood: str = "warm_clinical") -> bytes:
     Synthesizes speech using mood-adaptive SSML voice parameters (pitch, rate, volume)
     and converts MP3 to 16kHz 16-bit Mono PCM for ESP32 playback.
     """
-    base_voice = os.getenv("TTS_VOICE", "en-US-AriaNeural")
+    base_voice = os.getenv("TTS_VOICE", "en-US-AvaNeural")
     
     # Configure dynamic SSML voice parameters based on emotional mood
     if mood == "celebratory":
-        rate = "+8%"
-        pitch = "+3Hz"
+        rate = "+25%"
+        pitch = "+4Hz"
         volume = "+5%"
+        style = "cheerful"
     elif mood == "calm_reassuring":
-        rate = "-8%"
-        pitch = "-2Hz"
-        volume = "-5%"
+        rate = "+12%"
+        pitch = "+1Hz"
+        volume = "+0%"
+        style = "friendly"
     elif mood == "empathetic_gentle":
-        rate = "-5%"
-        pitch = "-1Hz"
-        volume = "-8%"
-    else: # warm_clinical
-        rate = "+3%"
-        pitch = "+0Hz"
-        volume = "-10%"
+        rate = "+15%"
+        pitch = "+2Hz"
+        volume = "-2%"
+        style = "empathetic"
+    else: # warm_clinical / conversational default
+        rate = "+20%"
+        pitch = "+3Hz"
+        volume = "+0%"
+        style = "cheerful"
 
     # Build SSML string for human expressive vocal contour
     ssml_text = f"""<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
@@ -368,83 +371,103 @@ async def chat_audio(request: Request):
         headers=headers
     )
 
+class SmoothResampler24kTo16k:
+    """
+    Studio-Grade 24kHz -> 16kHz Streaming Polyphase Resampler.
+    Uses continuous 4-point symmetric cubic interpolation with matched zero-phase filtering
+    and boundary sample history to eliminate 8kHz Nyquist modulation flutter, robotic buzz, and aliasing distortion.
+    """
+    def __init__(self, volume_scale: float = 0.44):
+        self.raw_bytes = bytearray()
+        self.history = [0, 0, 0] # Holds last 3 input samples for seamless inter-chunk continuity
+        self.remainder_samples = []
+        self.last_out_sample = 0
+        self.volume_scale = volume_scale
+
+    def process(self, chunk: bytes) -> bytes:
+        if not chunk:
+            return b""
+        self.raw_bytes.extend(chunk)
+        
+        # Ensure we only process whole 16-bit samples (even number of bytes)
+        num_samples = len(self.raw_bytes) // 2
+        if num_samples == 0:
+            return b""
+            
+        usable_bytes = num_samples * 2
+        chunk_to_unpack = bytes(self.raw_bytes[:usable_bytes])
+        self.raw_bytes = self.raw_bytes[usable_bytes:]
+        
+        new_samples = list(struct.unpack(f"<{num_samples}h", chunk_to_unpack))
+        all_samples = self.remainder_samples + new_samples
+        
+        num_triplets = len(all_samples) // 3
+        if num_triplets == 0:
+            self.remainder_samples = all_samples
+            return b""
+            
+        used_len = num_triplets * 3
+        to_process = all_samples[:used_len]
+        self.remainder_samples = all_samples[used_len:]
+        
+        # Build contiguous sequence with 3-sample history prefix
+        seq = self.history + to_process
+        self.history = to_process[-3:]
+        
+        out_samples = []
+        scale = self.volume_scale
+        for i in range(num_triplets):
+            idx = 3 * i + 3
+            sm1 = seq[idx - 1]
+            s0  = seq[idx]
+            s1  = seq[idx + 1]
+            s2  = seq[idx + 2]
+            s3  = seq[idx + 3] if (idx + 3) < len(seq) else s2
+            
+            # Symmetrically matched 4-point cubic Hermite interpolation:
+            # y0 (on-grid sample): matched symmetric smoothing (sm1 + 14*s0 + s1) / 16
+            # y1 (midpoint sample): cubic interpolated (-s0 + 9*s1 + 9*s2 - s3) / 16
+            y0_raw = (sm1 + 14 * s0 + s1 + 8) >> 4
+            y1_raw = (-s0 + 9 * s1 + 9 * s2 - s3 + 8) >> 4
+            
+            y0 = max(-32768, min(32767, int(y0_raw * scale)))
+            y1 = max(-32768, min(32767, int(y1_raw * scale)))
+            
+            out_samples.append(y0)
+            out_samples.append(y1)
+            
+        if out_samples:
+            self.last_out_sample = out_samples[-1]
+            
+        return struct.pack(f"<{len(out_samples)}h", *out_samples)
+
+    def flush(self) -> bytes:
+        out_samples = []
+        scale = self.volume_scale
+        if len(self.remainder_samples) == 1:
+            out_samples.append(int(self.remainder_samples[0] * scale))
+        elif len(self.remainder_samples) == 2:
+            out_samples.append(int(self.remainder_samples[0] * scale))
+            out_samples.append(int(self.remainder_samples[1] * scale))
+            
+        # Smooth 32-sample linear fade-out to zero (anti-pop window)
+        start_val = out_samples[-1] if out_samples else self.last_out_sample
+        if abs(start_val) > 10:
+            for k in range(1, 33):
+                factor = (32 - k) / 32.0
+                out_samples.append(int(start_val * factor))
+                
+        # 128 samples (~8ms) of clean zero silence to let DAC DMA drain smoothly
+        out_samples.extend([0] * 128)
+        
+        self.raw_bytes.clear()
+        self.history = [0, 0, 0]
+        self.remainder_samples = []
+        self.last_out_sample = 0
+        return struct.pack(f"<{len(out_samples)}h", *out_samples) if out_samples else b""
+
 # Verified primary model for Live API bidiGenerateContent
-LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
-
-class GeminiLiveTransportSession:
-    """
-    Manages persistent bi-directional WebSockets transport with Google Gemini 3.1 Live API.
-    Handles LiveConnectConfig setup, streaming audio input/output, and interruption events.
-    """
-    def __init__(self, session_id: str, patient_name: str, persona_str: str):
-        self.session_id = session_id
-        self.patient_name = patient_name
-        self.persona_str = persona_str
-        self.live_session = None
-        self.is_connected = False
-
-    async def connect(self, api_key: str):
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=api_key)
-
-        system_instruction = (
-            "STRICT HUMAN VOICE INTELLIGENCE & CLINICAL ASSISTANT INSTRUCTIONS:\n"
-            f"You are a human-like, highly empathetic clinical voice companion speaking directly to {self.patient_name}.\n"
-            "Analyze both the spoken content AND the tone of the user's voice.\n"
-            "1. IF THE USER SAYS A GREETING OR CASUAL CHITCHAT (e.g., 'Hello', 'Hi', 'Hey', 'Good morning', 'How are you'):\n"
-            "   - Greet them back warmly and naturally by name! Ask how they are feeling today.\n"
-            "   - DO NOT blurt out clinical data or HbA1c/medical metrics unless specifically asked!\n"
-            "2. IF THE USER ASKS A SPECIFIC HEALTH QUESTION:\n"
-            "   - Search the PATIENT PERSONA RECORD below and extract exact values (doctor name/ID, HbA1c, glucose, vitals, step count, medications, lab reports, doctor notes, etc.).\n"
-            "3. Determine the user's emotion/tone (`happy`, `anxious`, `concerned`, `pain`, `neutral`, `curious`).\n"
-            "4. Determine the best voice response mood (`celebratory`, `calm_reassuring`, `empathetic_gentle`, `warm_clinical`).\n"
-            "   - Use `celebratory` for positive achievements or friendly greetings.\n"
-            "   - Use `calm_reassuring` for user anxiety, elevated glucose spikes, or high blood pressure.\n"
-            "   - Use `empathetic_gentle` for pain, discomfort, or missed medication notes.\n"
-            "   - Use `warm_clinical` for general informative questions.\n"
-            "5. Respond in clear conversational speech using exact data values when asked.\n\n"
-            "PATIENT PERSONA RECORD:\n"
-            f"{self.persona_str}\n"
-        )
-
-        config = types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Kore")
-                )
-            ),
-            system_instruction=types.Content(
-                parts=[types.Part.from_text(text=system_instruction)]
-            )
-        )
-
-        logger.info(f"⚡ Establishing Gemini Live API Session [{LIVE_MODEL}] for session_id='{self.session_id}'...")
-        self.live_session = await client.aio.live.connect(model=LIVE_MODEL, config=config).__aenter__()
-        self.is_connected = True
-        logger.info(f"✅ Gemini Live API Session ACTIVE for session_id='{self.session_id}'")
-
-    async def send_audio_chunk(self, pcm_bytes: bytes, mime_type: str = "audio/pcm;rate=16000"):
-        if self.live_session and self.is_connected:
-            from google.genai import types
-            try:
-                await self.live_session.send_realtime_input(
-                    audio=types.Blob(data=pcm_bytes, mime_type=mime_type)
-                )
-            except Exception as err:
-                logger.warning(f"Failed to send realtime audio chunk: {err}")
-                self.is_connected = False
-
-    async def close(self):
-        if self.live_session:
-            try:
-                await self.live_session.close()
-            except Exception:
-                pass
-            self.is_connected = False
-            logger.info(f"🔴 Gemini Live Session Closed for session_id='{self.session_id}'")
+LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest")
 
 @app.websocket("/ws/live/{session_id}")
 @app.websocket("/ws/live")
@@ -465,163 +488,226 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
     if os.path.exists(persona_path):
         try:
             with open(persona_path, "r", encoding="utf-8") as f:
-                persona_str = f.read()
+                raw_json = f.read()
             import json
-            p_data = json.loads(persona_str).get("data", {})
+            full_dict = json.loads(raw_json)
+            p_data = full_dict.get("data", {})
             identity = p_data.get("identity", {})
             patient_name = identity.get("first_name", "Samarth")
-        except Exception:
-            pass
+            copilot_ctx = p_data.get("ai_copilot_context", {})
+            exec_summary = copilot_ctx.get("executive_summary_for_llm", "")
+            
+            # Format clean persona context snippet
+            persona_str = f"EXECUTIVE SUMMARY: {exec_summary}\nFULL DATA RECORD:\n" + json.dumps(p_data, indent=2)
+        except Exception as e:
+            logger.warning(f"Could not load patient_persona.json: {e}")
 
-    live_transport = GeminiLiveTransportSession(session_id, patient_name, persona_str)
-    try:
-        await live_transport.connect(api_key)
-    except Exception as err:
-        logger.error(f"Failed to connect to Gemini Live API: {err}", exc_info=True)
-        await websocket.send_json({"event": "error", "message": "Gemini Live session connection failed."})
-        await websocket.close()
-        return
+    from google import genai
+    from google.genai import types
 
-    # Task to receive real-time audio output from Gemini Live API and relay to ESP32 client
-    async def gemini_rx_loop():
-        try:
-            async for response in live_transport.live_session.receive():
-                server_content = response.server_content
-                if server_content is not None:
-                    model_turn = server_content.model_turn
-                    if model_turn is not None:
-                        for part in model_turn.parts:
-                            if part.inline_data:
-                                # Relay raw PCM audio frames directly to ESP32 speaker
-                                await websocket.send_bytes(part.inline_data.data)
-                    if server_content.interrupted:
-                        logger.info(f"⚡ [BARGE-IN] Gemini detected user interruption for '{session_id}'! Signaling client...")
-                        await websocket.send_json({"event": "interrupted", "session_id": session_id})
-        except Exception as rx_err:
-            logger.warning(f"Gemini Live RX loop ended for '{session_id}': {rx_err}")
+    client = genai.Client(api_key=api_key)
 
-    rx_task = asyncio.create_task(gemini_rx_loop())
+    system_instruction = (
+        "STRICT HUMAN VOICE INTELLIGENCE & CLINICAL ASSISTANT INSTRUCTIONS:\n"
+        f"You are a warm, gentle, calm, and soothing clinical voice companion named Assistant speaking directly to {patient_name}.\n"
+        "Maintain a smooth, relaxed, natural conversational pace with clear, pleasant vocal intonation.\n"
+        "Speak softly and warmly without shouting, rushing, or abrupt tone changes.\n"
+        "CRITICAL: Never append repetitive robotic disclaimers or phrases like 'Note: please consult your doctor' or 'Consult your physician' at the end of normal queries. Provide direct, warm, natural answers only.\n\n"
+        "CONVERSATION RULES:\n"
+        "1. WHEN THE USER CALLS YOUR WAKE WORD ('Hello Assistant', 'Hey Assistant', 'Hi Assistant') OR GREETS YOU:\n"
+        f"   - Greet them back warmly, softly, and naturally by name! (e.g. 'Hello {patient_name}! I am right here. What would you like to check today?')\n"
+        "   - Keep it short (1 gentle sentence), friendly, and natural. Do NOT list clinical stats unless asked.\n"
+        "2. WHEN THE USER ASKS ABOUT THEIR HEALTH, HbA1c, GLUCOSE, DOCTOR, MEDICATIONS, VITALS, LAB REPORTS, OR WEIGHT:\n"
+        "   - Search the PATIENT PERSONA RECORD below and answer with their exact numbers/names!\n"
+        "   - Keep answers concise (1-2 clear sentences) so the user can easily ask follow-up questions.\n"
+        "3. WHEN THE USER SAYS 'STOP', 'GOODBYE', 'BYE', 'GO TO SLEEP', 'EXIT', OR 'THAT IS ALL':\n"
+        "   - Say a warm, soothing goodbye (e.g. 'Goodbye! Have a wonderful and healthy day!') and conclude.\n\n"
+        "PATIENT PERSONA RECORD:\n"
+        f"{persona_str}\n"
+    )
+
+    voice_name = os.getenv("GEMINI_VOICE", "Kore") # 'Kore' provides warm, soothing, natural tone
+    config = types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+            )
+        ),
+        system_instruction=types.Content(
+            parts=[types.Part.from_text(text=system_instruction)]
+        )
+    )
 
     try:
         while True:
-            message = await websocket.receive()
-            if message["type"] == "websocket.disconnect":
-                break
+            try:
+                logger.info(f"⚡ Establishing Gemini Live API Session [{LIVE_MODEL}] for session_id='{session_id}'...")
+                async with client.aio.live.connect(model=LIVE_MODEL, config=config) as session:
+                    logger.info(f"✅ Gemini Live API Session ACTIVE for session_id='{session_id}'")
 
-            if "bytes" in message and message["bytes"]:
-                data = message["bytes"]
-                pcm_data = data[44:] if data.startswith(b"RIFF") else data
-                await live_transport.send_audio_chunk(pcm_data)
-            elif "text" in message and message["text"]:
-                if "barge_in" in message["text"] or "stop" in message["text"]:
-                    logger.info(f"⚡ Client sent explicit barge-in signal for '{session_id}'")
+                    loop = asyncio.get_event_loop()
+                    last_activity_time = loop.time()
+                    last_audio_in_time = 0.0
+                    streaming_speech = False
+                    is_model_speaking = False
+                    resampler = SmoothResampler24kTo16k(volume_scale=0.46)
+
+                    def boost_chunk_gain(raw_bytes: bytes, gain: float = 1.4) -> bytes:
+                        if len(raw_bytes) < 4:
+                            return raw_bytes
+                        count = len(raw_bytes) // 2
+                        samples = struct.unpack(f"<{count}h", raw_bytes[:count*2])
+                        boosted = [max(-32768, min(32767, int(s * gain))) for s in samples]
+                        return struct.pack(f"<{count}h", *boosted)
+
+                    async def gemini_rx_loop():
+                        nonlocal last_activity_time, is_model_speaking
+                        try:
+                            sent_bytes_in_turn = 0
+                            turn_start_time = 0.0
+
+                            while True:
+                                async for response in session.receive():
+                                    last_activity_time = loop.time()
+                                    server_content = response.server_content
+                                    if server_content is not None:
+                                        model_turn = server_content.model_turn
+                                        if model_turn is not None:
+                                            is_model_speaking = True
+                                            for part in model_turn.parts:
+                                                if part.text:
+                                                    logger.info(f" 🗣️ [Gemini Live Text]: {part.text.strip()}")
+                                                if part.inline_data and part.inline_data.data:
+                                                    pcm_16k = resampler.process(part.inline_data.data)
+                                                    if pcm_16k:
+                                                        if sent_bytes_in_turn == 0:
+                                                            turn_start_time = loop.time()
+
+                                                        sent_bytes_in_turn += len(pcm_16k)
+                                                        await websocket.send_bytes(pcm_16k)
+
+                                                        # Real-Time Flow Control (32KB/sec for 16kHz 16-bit Mono)
+                                                        # Maintains a steady ~500ms lead buffer in the ESP32 ringbuffer (16KB / 64KB capacity)
+                                                        # Completely prevents ringbuffer underrun, gaps, and overflow!
+                                                        total_audio_sec = sent_bytes_in_turn / 32000.0
+                                                        elapsed_sec = loop.time() - turn_start_time
+                                                        lead_time = total_audio_sec - elapsed_sec
+                                                        if lead_time > 0.60:
+                                                            await asyncio.sleep(lead_time - 0.50)
+
+                                        if server_content.turn_complete:
+                                            logger.info(f"✅ [Gemini Live]: Turn Complete for session '{session_id}'")
+                                            is_model_speaking = False
+                                            sent_bytes_in_turn = 0
+                                            turn_start_time = 0.0
+                                            leftover = resampler.flush()
+                                            if leftover:
+                                                await websocket.send_bytes(leftover)
+                                            try:
+                                                await websocket.send_json({"event": "turn_complete"})
+                                            except Exception:
+                                                pass
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as rx_err:
+                            logger.warning(f"Gemini Live RX loop ended for '{session_id}': {rx_err}")
+
+                    rx_task = asyncio.create_task(gemini_rx_loop())
+
+                    async def keepalive_task():
+                        try:
+                            while True:
+                                await asyncio.sleep(15.0)
+                                now = loop.time()
+                                if not streaming_speech and not is_model_speaking and (now - last_activity_time > 20.0):
+                                    # Send 10ms of zero silence to keep Gemini Live session alive
+                                    await session.send_realtime_input(
+                                        audio=types.Blob(data=b"\x00" * 320, mime_type="audio/pcm;rate=16000")
+                                    )
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as k_err:
+                            logger.debug(f"Keepalive task ended: {k_err}")
+
+                    keepalive_task_handle = asyncio.create_task(keepalive_task())
+
+                    try:
+                        audio_buffer = bytearray()
+                        chunk_counter = 0
+                        while True:
+                            if rx_task.done():
+                                if rx_task.exception():
+                                    logger.info(f"Gemini session disconnected ({rx_task.exception()}), reconnecting...")
+                                else:
+                                    logger.info(f"Gemini session RX task finished, reconnecting...")
+                                break
+
+                            try:
+                                message = await asyncio.wait_for(websocket.receive(), timeout=0.25)
+                            except asyncio.TimeoutError:
+                                # Check if speech streaming has ended after 850ms of silence
+                                if streaming_speech and (loop.time() - last_audio_in_time > 0.85):
+                                    streaming_speech = False
+                                    logger.info(f"🎤 [Audio Turn End]: Recorded {len(audio_buffer)} bytes. Triggering Gemini response...")
+                                    await session.send_realtime_input(audio_stream_end=True)
+                                    audio_buffer.clear()
+                                continue
+
+                            if message["type"] == "websocket.disconnect":
+                                return
+
+                            if "bytes" in message and message["bytes"]:
+                                last_activity_time = loop.time()
+                                last_audio_in_time = loop.time()
+                                streaming_speech = True
+
+                                data = message["bytes"]
+                                if len(data) == 44 and data.startswith(b"RIFF"):
+                                    continue
+                                pcm_data = data[44:] if data.startswith(b"RIFF") else data
+                                if not pcm_data:
+                                    continue
+                                
+                                boosted_pcm = boost_chunk_gain(pcm_data)
+                                audio_buffer.extend(boosted_pcm)
+                                chunk_counter += 1
+                                
+                                # Send boosted realtime chunk to Live session
+                                await session.send_realtime_input(
+                                    audio=types.Blob(data=boosted_pcm, mime_type="audio/pcm;rate=16000")
+                                )
+                                
+                                if chunk_counter % 25 == 0:
+                                    logger.info(f" 🎙️ [Audio Stream]: Streaming {len(audio_buffer)} bytes PCM to Gemini...")
+                            elif "text" in message and message["text"]:
+                                txt = message["text"]
+                                if "audio_end" in txt:
+                                    if streaming_speech:
+                                        streaming_speech = False
+                                        logger.info(f"🎤 [Explicit Turn End]: {len(audio_buffer)} bytes. Triggering Gemini response...")
+                                        await session.send_realtime_input(audio_stream_end=True)
+                                        audio_buffer.clear()
+                                    elif len(audio_buffer) > 0:
+                                        logger.info(f"🎤 [Explicit Turn End]: {len(audio_buffer)} bytes. Triggering Gemini response...")
+                                        await session.send_realtime_input(audio_stream_end=True)
+                                        audio_buffer.clear()
+                    finally:
+                        keepalive_task_handle.cancel()
+                        rx_task.cancel()
+            except WebSocketDisconnect:
+                logger.info(f"🔴 Client disconnected from Gemini Live Stream (session_id: '{session_id}')")
+                return
+            except Exception as live_err:
+                logger.warning(f"⚠️ Gemini Live connection reset ({live_err}). Reconnecting in 0.5s...")
+                await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         logger.info(f"🔴 Client disconnected from Gemini Live Stream (session_id: '{session_id}')")
     finally:
-        rx_task.cancel()
-        await live_transport.close()
-
-@app.websocket("/ws/voice_dynamic/{session_id}")
-@app.websocket("/ws/voice_dynamic")
-async def websocket_voice_dynamic(websocket: WebSocket, session_id: str = "default"):
-    """
-    WebSocket WS/WSS Endpoint: /ws/voice_dynamic/{session_id}
-    Receives PCM/WAV binary audio frames from ESP32 or web clients over persistent socket.
-    Sends back text metadata as JSON and 16kHz 16-bit Mono PCM audio bytes to the speaker.
-    """
-    await websocket.accept()
-    logger.info(f"🟢 [STATE: READY] WebSocket connected (session_id: '{session_id}'). Client can SPEAK now.")
-
-    try:
-        while True:
-            message = await websocket.receive()
-            if message["type"] == "websocket.disconnect":
-                logger.info(f"🔴 [STATE: DISCONNECTED] WebSocket client disconnected (session_id: '{session_id}').")
-                break
-
-            if "bytes" in message and message["bytes"]:
-                data = message["bytes"]
-            elif "text" in message and message["text"]:
-                logger.info(f"[{session_id}] Received text WS frame: {message['text']}")
-                continue
-            else:
-                continue
-
-            # If client sends a 44-byte WAV header first frame, receive next frame for PCM body
-            if len(data) == 44 and data.startswith(b"RIFF"):
-                logger.info(f"[{session_id}] Received WAV header frame, waiting for PCM payload frame...")
-                next_msg = await websocket.receive()
-                if "bytes" in next_msg and next_msg["bytes"]:
-                    data = data + next_msg["bytes"]
-
-            if len(data) < 100:
-                logger.warning(f"[{session_id}] Received audio payload too small ({len(data)} bytes), skipping...")
-                continue
-
-            logger.info(f" [STATE: RECORDED] [{session_id}] Received {len(data)} bytes audio. DO NOT SPEAK - Processing with Gemini...")
-
-            # Extract PCM payload if header is WAV (RIFF)
-            pcm_payload = data[44:] if data.startswith(b"RIFF") else data
-
-
-            # 3. Audio gain normalization & WAV wrapping for Gemini
-            processed_pcm = process_audio_pcm(pcm_payload)
-            wav_bytes = pcm_to_wav(processed_pcm, sample_rate=16000, channels=1, sample_width=2)
-
-            # 4. Call Gemini Model API (Perceives user emotion & derives persona answer)
-            logger.info(f"🧠 [STATE: THINKING] Processing human voice & persona for [{session_id}]...")
-            gemini_res = await call_gemini_api(wav_bytes, mime_type="audio/wav")
-
-            answer_text = gemini_res.get("answer", "I'm here to help you.")
-            response_mood = gemini_res.get("response_mood", "warm_clinical")
-            user_emotion = gemini_res.get("user_emotion", "neutral")
-
-            # 5. Synthesize mood-modulated SSML TTS to 16kHz 16-bit Mono PCM
-            logger.info(f"🔊 [STATE: SYNTHESIZING] Converting response to '{response_mood}' SSML speech...")
-            pcm_audio_output = await text_to_pcm_16k(answer_text, mood=response_mood)
-
-            # 6. Detect volume control commands
-            lower_text = answer_text.lower()
-            vol_command = None
-            if "mute" in lower_text or "silent" in lower_text:
-                vol_command = 0
-            elif "increase volume" in lower_text or "volume up" in lower_text or "louder" in lower_text:
-                vol_command = 85
-            elif "lower volume" in lower_text or "volume down" in lower_text or "softer" in lower_text or "quiet" in lower_text:
-                vol_command = 35
-
-            # 7. Send JSON metadata frame first
-            meta_payload = {
-                "event": "response",
-                "state": "speaking",
-                "session_id": session_id,
-                "text": answer_text,
-                "user_emotion": user_emotion,
-                "response_mood": response_mood,
-                "audio_bytes": len(pcm_audio_output)
-            }
-            if vol_command is not None:
-                meta_payload["set_volume"] = vol_command
-
-            await websocket.send_json(meta_payload)
-
-            # 8. Send raw PCM audio binary frame to ESP32 speaker
-            logger.info(f"📢 [STATE: SPEAKING] [{session_id}] Streaming {len(pcm_audio_output)} bytes ({response_mood}) audio to speaker.")
-            await websocket.send_bytes(pcm_audio_output)
-            logger.info(f"🟢 [STATE: READY] [{session_id}] Finished playing response. Client can SPEAK now.")
-
-
-    except WebSocketDisconnect:
-        logger.info(f" WebSocket client disconnected (session_id: '{session_id}')")
-    except Exception as e:
-        logger.error(f" [{session_id}] WebSocket error: {e}", exc_info=True)
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+        logger.info(f"🔴 Gemini Live Session Closed for session_id='{session_id}'")
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8008))
     logger.info(f" Starting server on port {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port, ws_ping_interval=None, ws_ping_timeout=None, timeout_keep_alive=600)
