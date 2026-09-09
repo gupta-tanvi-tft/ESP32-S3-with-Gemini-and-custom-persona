@@ -468,8 +468,8 @@ class SmoothResampler24kTo16k:
 
 # Verified primary models for Live API bidiGenerateContent
 FALLBACK_LIVE_MODELS = [
-    os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest"),
-    "gemini-2.5-flash-native-audio-latest",
+    os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview"),
+    "gemini-3.1-flash-live-preview",
     "gemini-2.0-flash-exp"
 ]
 
