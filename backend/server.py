@@ -466,8 +466,12 @@ class SmoothResampler24kTo16k:
         self.last_out_sample = 0
         return struct.pack(f"<{len(out_samples)}h", *out_samples) if out_samples else b""
 
-# Verified primary model for Live API bidiGenerateContent
-LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest")
+# Verified primary models for Live API bidiGenerateContent
+FALLBACK_LIVE_MODELS = [
+    os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest"),
+    "gemini-2.5-flash-native-audio-latest",
+    "gemini-2.0-flash-exp"
+]
 
 @app.websocket("/ws/live/{session_id}")
 @app.websocket("/ws/live")
@@ -540,11 +544,13 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
     )
 
     try:
+        model_idx = 0
         while True:
+            live_model = FALLBACK_LIVE_MODELS[model_idx % len(FALLBACK_LIVE_MODELS)]
             try:
-                logger.info(f"⚡ Establishing Gemini Live API Session [{LIVE_MODEL}] for session_id='{session_id}'...")
-                async with client.aio.live.connect(model=LIVE_MODEL, config=config) as session:
-                    logger.info(f"✅ Gemini Live API Session ACTIVE for session_id='{session_id}'")
+                logger.info(f"⚡ Establishing Gemini Live API Session [{live_model}] for session_id='{session_id}'...")
+                async with client.aio.live.connect(model=live_model, config=config) as session:
+                    logger.info(f"✅ Gemini Live API Session ACTIVE [{live_model}] for session_id='{session_id}'")
 
                     loop = asyncio.get_event_loop()
                     last_activity_time = loop.time()
@@ -699,7 +705,8 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
                 logger.info(f"🔴 Client disconnected from Gemini Live Stream (session_id: '{session_id}')")
                 return
             except Exception as live_err:
-                logger.warning(f"⚠️ Gemini Live connection reset ({live_err}). Reconnecting in 0.5s...")
+                logger.warning(f"⚠️ Gemini Live connection reset with model '{live_model}' ({live_err}). Trying next fallback model...")
+                model_idx += 1
                 await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         logger.info(f"🔴 Client disconnected from Gemini Live Stream (session_id: '{session_id}')")
