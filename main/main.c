@@ -105,7 +105,7 @@ static void update_led_state(conv_state_t state) {
 }
 
 static void audio_playback_task(void *pvParameters) {
-    uint8_t zero_silence[1024] = {0};
+    static const uint8_t zero_silence[1024] = {0};
     int empty_stall_ms = 0;
 
     while (1) {
@@ -538,7 +538,7 @@ void app_main(void)
     // 64KB Asynchronous Playback RingBuffer (2.0s audio cushion)
     s_audio_play_rb = xRingbufferCreate(65536, RINGBUF_TYPE_BYTEBUF);
     // Pin audio playback to dedicated Core 1 (Priority 10) isolated from Wi-Fi interrupts
-    xTaskCreatePinnedToCore(audio_playback_task, "audio_play_task", 4096, NULL, 10, NULL, 1);
+    xTaskCreatePinnedToCore(audio_playback_task, "audio_play_task", 8192, NULL, 10, NULL, 1);
 
     // Pin button listener to Core 0 (Priority 4)
     xTaskCreatePinnedToCore(gpio_button_task, "gpio_button_task", 3072, NULL, 4, NULL, 0);
