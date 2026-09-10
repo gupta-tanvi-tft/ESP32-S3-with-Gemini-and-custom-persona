@@ -1,0 +1,18 @@
+services:
+  gemini-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gemini_voice_backend
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+    env_file:
+      - .env
+    environment:
+      - PORT=8008
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

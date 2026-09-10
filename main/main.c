@@ -29,8 +29,8 @@ static const char *TAG = "GEMINI_ASSISTANT";
 
 #define VAD_WAKE_THRESHOLD_RMS  150.0f // Standby threshold to trigger session (calibrated for 24dB mic)
 #define VAD_ACTIVE_THRESHOLD_RMS 90.0f  // Threshold to keep streaming speech
-#define MIN_SPEECH_DURATION_MS  300   // Minimum speech required to trigger Gemini turn
-#define SILENCE_TIMEOUT_MS      650   // 650ms silence ends utterance -> instant Gemini response
+#define MIN_SPEECH_DURATION_MS  250   // Minimum speech required to trigger Gemini turn
+#define SILENCE_TIMEOUT_MS      380   // 380ms silence ends utterance -> ultra-fast Gemini response
 #define IDLE_STANDBY_TIMEOUT_S  25    // 25s inactivity returns to Standby
 
 // ==========================================================
@@ -70,7 +70,7 @@ static volatile bool s_turn_complete = true;
 static volatile size_t s_buffered_bytes = 0;
 static volatile bool s_is_prebuffering = true;
 
-#define PLAYBACK_PREBUFFER_BYTES  9600 // ~300ms of 16kHz 16-bit audio cushion (32,000 bytes/sec)
+#define PLAYBACK_PREBUFFER_BYTES  3200 // ~100ms audio cushion for ultra-low response latency
 
 static void flush_playback_ringbuffer(void) {
     s_turn_complete = true;
@@ -86,22 +86,59 @@ static void flush_playback_ringbuffer(void) {
     }
 }
 
-// Set RGB LED based on current state
-static void update_led_state(conv_state_t state) {
-    switch (state) {
-        case CONV_STATE_STANDBY:
-            rgb_led_set_all(0, 30, 80);   // Soft Dim Blue (Standby / Listening for Wake Word)
-            break;
-        case CONV_STATE_LISTENING:
-            rgb_led_set_all(0, 150, 255); // Bright Cyan (Active Conversation / User Speaking)
-            break;
-        case CONV_STATE_THINKING:
-            rgb_led_set_all(220, 140, 0); // Amber Yellow (Processing / Generating Answer)
-            break;
-        case CONV_STATE_SPEAKING:
-            rgb_led_set_all(0, 220, 30);  // Vibrant Green (Assistant Speaking)
-            break;
+static volatile bool s_boot_anim_done = false;
+
+// Dedicated Asynchronous LED Animation Engine (Runs on Core 0 at 20fps)
+static void led_animation_task(void *pvParameters) {
+    uint32_t step = 0;
+    while (1) {
+        if (!s_boot_anim_done) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        switch (s_conv_state) {
+            case CONV_STATE_STANDBY:
+                // Standby / Said Goodbye: Solid Red
+                rgb_led_set_all(255, 0, 0);
+                break;
+
+            case CONV_STATE_LISTENING: {
+                // Active Listening: Pulsating Lemon Yellow Center (LEDs 1..5) with Green Edges (LEDs 0, 6)
+                uint8_t breath = 160 + (uint8_t)(95.0f * (1.0f + sinf(step * 0.25f)) / 2.0f);
+                rgb_led_set_pixel(0, 0, breath, 0);
+                rgb_led_set_pixel(1, breath, breath, 0);
+                rgb_led_set_pixel(2, breath, breath, 0);
+                rgb_led_set_pixel(3, breath, breath, 0);
+                rgb_led_set_pixel(4, breath, breath, 0);
+                rgb_led_set_pixel(5, breath, breath, 0);
+                rgb_led_set_pixel(6, 0, breath, 0);
+                break;
+            }
+
+            case CONV_STATE_THINKING: {
+                // Thinking / AI Reasoning: Rotating Orange Orbit
+                rgb_led_clear();
+                int idx = step % 7;
+                rgb_led_set_pixel(idx, 255, 120, 0);
+                break;
+            }
+
+            case CONV_STATE_SPEAKING: {
+                // Assistant Speaking: Simultaneous Pink / Purple Pulsating Equalizer Wave
+                uint8_t pulse = 130 + (uint8_t)(125.0f * (1.0f + sinf(step * 0.35f)) / 2.0f);
+                rgb_led_set_all(pulse, 0, pulse);
+                break;
+            }
+        }
+
+        step++;
+        vTaskDelay(pdMS_TO_TICKS(50)); // Smooth 20fps refresh
     }
+}
+
+static void update_led_state(conv_state_t state) {
+    // State machine indicator updated asynchronously by led_animation_task
 }
 
 static void audio_playback_task(void *pvParameters) {
@@ -152,7 +189,7 @@ static void audio_playback_task(void *pvParameters) {
             if (s_playback_ctx.is_playing) {
                 empty_stall_ms += 100;
 
-                if (s_turn_complete || empty_stall_ms >= 800) {
+                if (s_turn_complete || empty_stall_ms >= 200) {
                     if (s_playback_ctx.play_dev) {
                         esp_codec_dev_write(s_playback_ctx.play_dev, (void *)zero_silence, sizeof(zero_silence));
                     }
@@ -186,6 +223,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         case WEBSOCKET_EVENT_CONNECTED:
             s_ws_connected = true;
             ESP_LOGI(TAG, "⚡ Persistent WebSocket Connected to Relay Server!");
+            rgb_led_set_all(255, 255, 255); // White (Gemini Live Connected)
             break;
         case WEBSOCKET_EVENT_DISCONNECTED:
             s_ws_connected = false;
@@ -419,12 +457,8 @@ static void continuous_mic_stream_task(void *pvParameters)
 
 static void gpio_button_task(void *pvParameters)
 {
-    // Enable pullups on button GPIO pins
-    uint64_t pin_mask = (1ULL << GPIO_NUM_0)  | (1ULL << GPIO_NUM_1)  | (1ULL << GPIO_NUM_2)  |
-                        (1ULL << GPIO_NUM_3)  | (1ULL << GPIO_NUM_4)  | (1ULL << GPIO_NUM_5)  |
-                        (1ULL << GPIO_NUM_6)  | (1ULL << GPIO_NUM_7)  | (1ULL << GPIO_NUM_38) |
-                        (1ULL << GPIO_NUM_39) | (1ULL << GPIO_NUM_40) | (1ULL << GPIO_NUM_41) |
-                        (1ULL << GPIO_NUM_42);
+    // Enable pullups on BOOT button GPIO pin (Do NOT touch GPIO 38 which is reserved for WS2812 RGB LED strip)
+    uint64_t pin_mask = (1ULL << GPIO_NUM_0);
 
     gpio_config_t io_conf = {
         .pin_bit_mask = pin_mask,
@@ -527,9 +561,11 @@ void app_main(void)
     ESP_LOGI(TAG, "   • VOL+/-     : TCA9555 Buttons 1 & 2");
     ESP_LOGI(TAG, "------------------------------------------------");
 
-    // 1. Initialize Peripherals & Codecs
+    // 1. Switched On -> Sky Blue
     ESP_ERROR_CHECK(esp_board_init(SAMPLE_RATE, 1, 16));
     rgb_led_init();
+    rgb_led_set_all(0, 200, 255); // Sky Blue (Switched On / Boot)
+    vTaskDelay(pdMS_TO_TICKS(300));
 
     s_playback_ctx.play_dev = esp_ret_play_dev();
     s_playback_ctx.total_audio_read = 0;
@@ -543,19 +579,26 @@ void app_main(void)
     // Pin button listener to Core 0 (Priority 4)
     xTaskCreatePinnedToCore(gpio_button_task, "gpio_button_task", 3072, NULL, 4, NULL, 0);
 
-    // 2. Connect Wi-Fi (Runs on Core 0)
-    rgb_led_set_all(0, 0, 255); // Blue = Connecting Wi-Fi
+    // 2. Connect Wi-Fi -> Green when connected
     ESP_LOGI(TAG, "Connecting to Wi-Fi...");
     if (wifi_init_sta() != ESP_OK) {
         ESP_LOGE(TAG, "Wi-Fi connection failed! Please check SSID & Password.");
         rgb_led_set_all(255, 0, 0);
         return;
     }
-    rgb_led_clear();
+    rgb_led_set_all(0, 255, 0); // Pure Green (Wi-Fi Connected)
+    vTaskDelay(pdMS_TO_TICKS(400));
 
-    // 3. Connect Persistent WebSocket right at boot
+    // 3. Connect Persistent WebSocket -> White when connected
     ESP_LOGI(TAG, "Initializing persistent Live WebSocket connection at boot...");
     ensure_websocket_connected(&s_playback_ctx);
+    rgb_led_set_all(255, 255, 255); // Pure White (Gemini Connected)
+    vTaskDelay(pdMS_TO_TICKS(400));
+    
+    // Start continuous LED animation task on Core 0
+    xTaskCreatePinnedToCore(led_animation_task, "led_anim_task", 3072, NULL, 3, NULL, 0);
+    s_boot_anim_done = true;
+    update_led_state(s_conv_state);
 
     ESP_LOGI(TAG, "✅ Free Heap Memory: %lu bytes", (unsigned long)esp_get_free_heap_size());
     ESP_LOGI(TAG, "System Ready! Continuous Voice Assistant active.");

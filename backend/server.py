@@ -468,9 +468,9 @@ class SmoothResampler24kTo16k:
 
 # Verified primary models for Live API bidiGenerateContent
 FALLBACK_LIVE_MODELS = [
-    os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview"),
-    "gemini-3.1-flash-live-preview",
-    "gemini-2.0-flash-exp"
+    os.getenv("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest"),
+    "gemini-2.5-flash-native-audio-latest",
+    "gemini-3.1-flash-live-preview"
 ]
 
 @app.websocket("/ws/live/{session_id}")
@@ -509,7 +509,7 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(api_version="v1alpha"))
 
     system_instruction = (
         "STRICT HUMAN VOICE INTELLIGENCE & CLINICAL ASSISTANT INSTRUCTIONS:\n"
@@ -705,6 +705,10 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
                 logger.info(f"🔴 Client disconnected from Gemini Live Stream (session_id: '{session_id}')")
                 return
             except Exception as live_err:
+                err_str = str(live_err).lower()
+                if "1008" in err_str or "authentication" in err_str or "unauthorized" in err_str:
+                    logger.error(f"❌ Gemini Live Authentication Failed (1008): {live_err}. Check your GEMINI_API_KEY in .env!")
+                    return
                 logger.warning(f"⚠️ Gemini Live connection reset with model '{live_model}' ({live_err}). Trying next fallback model...")
                 model_idx += 1
                 await asyncio.sleep(0.5)
