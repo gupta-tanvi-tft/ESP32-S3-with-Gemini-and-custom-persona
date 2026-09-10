@@ -70,7 +70,7 @@ static volatile bool s_turn_complete = true;
 static volatile size_t s_buffered_bytes = 0;
 static volatile bool s_is_prebuffering = true;
 
-#define PLAYBACK_PREBUFFER_BYTES  3200 // ~100ms audio cushion for ultra-low response latency
+#define PLAYBACK_PREBUFFER_BYTES  6400 // ~200ms audio cushion for crystal-clear fluent playback
 
 static void flush_playback_ringbuffer(void) {
     s_turn_complete = true;
