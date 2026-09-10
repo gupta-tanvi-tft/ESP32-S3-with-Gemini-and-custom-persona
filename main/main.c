@@ -89,6 +89,7 @@ static void flush_playback_ringbuffer(void) {
 static volatile bool s_boot_anim_done = false;
 
 // Dedicated Asynchronous LED Animation Engine (Runs on Core 0 at 20fps)
+// Dedicated Asynchronous Pastel LED Engine (Uses only 3 center LEDs: 2, 3, 4)
 static void led_animation_task(void *pvParameters) {
     uint32_t step = 0;
     while (1) {
@@ -97,37 +98,54 @@ static void led_animation_task(void *pvParameters) {
             continue;
         }
 
+        rgb_led_clear(); // Turn off unused outer LEDs (0, 1, 5, 6)
+
         switch (s_conv_state) {
-            case CONV_STATE_STANDBY:
-                // Standby / Said Goodbye: Solid Red
-                rgb_led_set_all(255, 0, 0);
+            case CONV_STATE_STANDBY: {
+                // Standby: Soft Pastel Ice Blue gentle breathing on 3 center LEDs
+                float b_factor = 0.4f + 0.6f * (1.0f + sinf(step * 0.1f)) / 2.0f;
+                uint8_t r = (uint8_t)(60 * b_factor);
+                uint8_t g = (uint8_t)(140 * b_factor);
+                uint8_t b = (uint8_t)(200 * b_factor);
+                rgb_led_set_pixel(2, r, g, b);
+                rgb_led_set_pixel(3, r, g, b);
+                rgb_led_set_pixel(4, r, g, b);
                 break;
+            }
 
             case CONV_STATE_LISTENING: {
-                // Active Listening: Pulsating Lemon Yellow Center (LEDs 1..5) with Green Edges (LEDs 0, 6)
-                uint8_t breath = 160 + (uint8_t)(95.0f * (1.0f + sinf(step * 0.25f)) / 2.0f);
-                rgb_led_set_pixel(0, 0, breath, 0);
-                rgb_led_set_pixel(1, breath, breath, 0);
-                rgb_led_set_pixel(2, breath, breath, 0);
-                rgb_led_set_pixel(3, breath, breath, 0);
-                rgb_led_set_pixel(4, breath, breath, 0);
-                rgb_led_set_pixel(5, breath, breath, 0);
-                rgb_led_set_pixel(6, 0, breath, 0);
+                // Active Listening: Soft Pastel Mint Green pulse on 3 center LEDs
+                float b_factor = 0.5f + 0.5f * (1.0f + sinf(step * 0.25f)) / 2.0f;
+                uint8_t r = (uint8_t)(90 * b_factor);
+                uint8_t g = (uint8_t)(210 * b_factor);
+                uint8_t b = (uint8_t)(140 * b_factor);
+                rgb_led_set_pixel(2, r, g, b);
+                rgb_led_set_pixel(3, r, g, b);
+                rgb_led_set_pixel(4, r, g, b);
                 break;
             }
 
             case CONV_STATE_THINKING: {
-                // Thinking / AI Reasoning: Rotating Orange Orbit
-                rgb_led_clear();
-                int idx = step % 7;
-                rgb_led_set_pixel(idx, 255, 120, 0);
+                // Thinking / Reasoning: Soft Pastel Peach / Warm Cream breathing on 3 center LEDs
+                float b_factor = 0.4f + 0.6f * (1.0f + sinf(step * 0.3f)) / 2.0f;
+                uint8_t r = (uint8_t)(230 * b_factor);
+                uint8_t g = (uint8_t)(150 * b_factor);
+                uint8_t b = (uint8_t)(100 * b_factor);
+                rgb_led_set_pixel(2, r, g, b);
+                rgb_led_set_pixel(3, r, g, b);
+                rgb_led_set_pixel(4, r, g, b);
                 break;
             }
 
             case CONV_STATE_SPEAKING: {
-                // Assistant Speaking: Simultaneous Pink / Purple Pulsating Equalizer Wave
-                uint8_t pulse = 130 + (uint8_t)(125.0f * (1.0f + sinf(step * 0.35f)) / 2.0f);
-                rgb_led_set_all(pulse, 0, pulse);
+                // Assistant Speaking: Soft Pastel Lavender / Lilac wave across 3 center LEDs
+                float w2 = (1.0f + sinf(step * 0.35f)) / 2.0f;
+                float w3 = (1.0f + sinf(step * 0.35f + 1.0f)) / 2.0f;
+                float w4 = (1.0f + sinf(step * 0.35f + 2.0f)) / 2.0f;
+
+                rgb_led_set_pixel(2, (uint8_t)(170 * w2), (uint8_t)(120 * w2), (uint8_t)(220 * w2));
+                rgb_led_set_pixel(3, (uint8_t)(170 * w3), (uint8_t)(120 * w3), (uint8_t)(220 * w3));
+                rgb_led_set_pixel(4, (uint8_t)(170 * w4), (uint8_t)(120 * w4), (uint8_t)(220 * w4));
                 break;
             }
         }
