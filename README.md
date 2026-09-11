@@ -5,7 +5,7 @@
 ![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v5.5-green?style=for-the-badge&logo=espressif)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20%7C%20WebSockets-009688?style=for-the-badge&logo=fastapi)
 
-An end-to-end, real-time bi-directional voice assistant built on the **Waveshare ESP32-S3-AUDIO Board** powered by **Google Gemini Live API** and a **Custom Clinical Patient Persona **.
+An end-to-end, real-time bi-directional voice assistant built on the **Waveshare ESP32-S3-AUDIO Board** powered by **Google Gemini Live API** and a Custom Clinical Patient Persona.
 
 The system features continuous full-duplex WebSocket audio streaming, 24kHz to 16kHz polyphase cubic Hermite resampler, 4-channel microphone beamforming, ultra-sensitive Voice Activity Detection (VAD), FreeRTOS dual-core task isolation, hardware/software dual-layer volume control, 7-LED RGB visual volume indicator, and interactive physical buttons via the **TCA9555 I2C GPIO Expander**.
 
