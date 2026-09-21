@@ -608,6 +608,10 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
 
                             if server_content.turn_complete:
                                 duration_s = loop.time() - turn_start_time if turn_start_time > 0 else 0
+                                leftover_pcm = resampler.flush()
+                                if leftover_pcm:
+                                    sent_bytes_in_turn += len(leftover_pcm)
+                                    await websocket.send_bytes(leftover_pcm)
                                 logger.info(f" [Gemini Live]: Turn Complete for session '{session_id}' ({sent_bytes_in_turn} bytes, {duration_s:.2f}s duration)")
                                 await websocket.send_text('{"type": "turn_complete"}')
                                 is_model_speaking = False
