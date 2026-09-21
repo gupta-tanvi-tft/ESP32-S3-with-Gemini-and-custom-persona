@@ -45,7 +45,7 @@ def read_root():
     return {
         "status": "online",
         "service": "ESP32 Gemini Voice Relay",
-        "configured_model": FALLBACK_MODELS[0]
+        "configured_model": PRIMARY_LIVE_MODEL
     }
 
 def process_audio_pcm(pcm_data: bytes, target_rms: float = 4000.0, silence_thresh: int = 30) -> bytes:
@@ -452,13 +452,6 @@ class SmoothResampler24kTo16k:
         self.last_out_sample = 0
         return struct.pack(f"<{len(out_samples)}h", *out_samples) if out_samples else b""
 
-# Verified primary models for Live API bidiGenerateContent
-FALLBACK_LIVE_MODELS = [
-    os.getenv("GEMINI_LIVE_MODEL", "gemini-2.0-flash-exp"),
-    "gemini-2.0-flash-exp",
-    "gemini-2.5-flash-native-audio-latest",
-    "gemini-3.1-flash-live-preview"
-]
 
 @app.websocket("/ws/live/{session_id}")
 @app.websocket("/ws/live")
