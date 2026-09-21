@@ -679,15 +679,10 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
                     elif "text" in message and message["text"]:
                         txt = message["text"]
                         if "audio_end" in txt:
-                            if streaming_speech:
-                                streaming_speech = False
-                                logger.info(f"🎤 [Explicit Turn End]: {len(audio_buffer)} bytes. Triggering Gemini response...")
-                                await session.send_realtime_input(audio_stream_end=True)
-                                audio_buffer.clear()
-                            elif len(audio_buffer) > 0:
-                                logger.info(f"🎤 [Explicit Turn End]: {len(audio_buffer)} bytes. Triggering Gemini response...")
-                                await session.send_realtime_input(audio_stream_end=True)
-                                audio_buffer.clear()
+                            streaming_speech = False
+                            logger.info(f"🎤 [Explicit Turn End]: Triggering Gemini response for session '{session_id}'...")
+                            await session.send_realtime_input(audio_stream_end=True)
+                            audio_buffer.clear()
             finally:
                 keepalive_task_handle.cancel()
                 rx_task.cancel()
