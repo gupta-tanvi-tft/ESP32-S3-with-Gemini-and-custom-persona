@@ -826,7 +826,6 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
                             logger.info(f"🎤 [Explicit Turn End]: Triggering Gemini response for session '{session_id}'...")
                             try:
                                 await session.send_realtime_input(audio_stream_end=True)
-                                await session.send(input=types.Content(role="user", parts=[types.Part.from_text(text="")]))
                             except Exception as err:
                                 logger.warning(f"Error sending audio_stream_end: {err}")
                             audio_buffer.clear()

@@ -278,6 +278,11 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                data->op_code == 0x00) { // Binary PCM audio frame
       if (data->data_len > 0 && s_audio_play_rb) {
         s_turn_complete = false;
+        s_last_speech_time_ms = esp_timer_get_time() / 1000;
+        if (s_conv_state == CONV_STATE_THINKING) {
+          s_conv_state = CONV_STATE_SPEAKING;
+          update_led_state(CONV_STATE_SPEAKING);
+        }
         BaseType_t res = xRingbufferSend(s_audio_play_rb, data->data_ptr,
                                          data->data_len, pdMS_TO_TICKS(2500));
         if (res == pdTRUE) {
@@ -527,9 +532,9 @@ static void continuous_mic_stream_task(void *pvParameters) {
       speech_accum_ms = 0;
       silence_accum_ms = 0;
       
-      // Fallback timeout: If no audio response arrives within 6 seconds, reset to LISTENING
-      if ((now_ms - s_last_speech_time_ms) > 6000) {
-        ESP_LOGW(TAG, "⚠️ Response timeout (6s). Returning to LISTENING state.");
+      // Fallback timeout: If no audio response arrives within 12 seconds, reset to LISTENING
+      if ((now_ms - s_last_speech_time_ms) > 12000) {
+        ESP_LOGW(TAG, "⚠️ Response timeout (12s). Returning to LISTENING state.");
         s_conv_state = CONV_STATE_LISTENING;
         update_led_state(CONV_STATE_LISTENING);
       }
