@@ -1,12 +1,17 @@
 #include "rgb_led_driver.h"
 #include "esp_log.h"
 #include "bsp_board.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "rgb_led";
 static led_strip_handle_t s_led_strip = NULL;
+static SemaphoreHandle_t s_led_mutex = NULL;
 
 void rgb_led_init(void)
 {
+    s_led_mutex = xSemaphoreCreateMutex();
+
     led_strip_config_t strip_config = {
         .strip_gpio_num = LED_STRIP_GPIO_PIN,
         .max_leds = LED_STRIP_LED_COUNT,
@@ -34,24 +39,33 @@ void rgb_led_init(void)
 void rgb_led_set_pixel(uint32_t index, uint8_t r, uint8_t g, uint8_t b)
 {
     if (s_led_strip && index < LED_STRIP_LED_COUNT) {
-        led_strip_set_pixel(s_led_strip, index, r, g, b);
-        led_strip_refresh(s_led_strip);
+        if (s_led_mutex && xSemaphoreTake(s_led_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            led_strip_set_pixel(s_led_strip, index, r, g, b);
+            led_strip_refresh(s_led_strip);
+            xSemaphoreGive(s_led_mutex);
+        }
     }
 }
 
 void rgb_led_set_all(uint8_t r, uint8_t g, uint8_t b)
 {
     if (!s_led_strip) return;
-    for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
-        led_strip_set_pixel(s_led_strip, i, r, g, b);
+    if (s_led_mutex && xSemaphoreTake(s_led_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
+            led_strip_set_pixel(s_led_strip, i, r, g, b);
+        }
+        led_strip_refresh(s_led_strip);
+        xSemaphoreGive(s_led_mutex);
     }
-    led_strip_refresh(s_led_strip);
 }
 
 void rgb_led_clear(void)
 {
     if (s_led_strip) {
-        led_strip_clear(s_led_strip);
+        if (s_led_mutex && xSemaphoreTake(s_led_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            led_strip_clear(s_led_strip);
+            xSemaphoreGive(s_led_mutex);
+        }
     }
 }
 
@@ -61,18 +75,21 @@ void rgb_led_set_vu_meter(int level)
     if (level < 0) level = 0;
     if (level > LED_STRIP_LED_COUNT) level = LED_STRIP_LED_COUNT;
 
-    for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
-        if (i < level) {
-            if (i < 4) {
-                led_strip_set_pixel(s_led_strip, i, 0, 180, 0);
-            } else if (i < 6) {
-                led_strip_set_pixel(s_led_strip, i, 180, 180, 0);
+    if (s_led_mutex && xSemaphoreTake(s_led_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
+            if (i < level) {
+                if (i < 4) {
+                    led_strip_set_pixel(s_led_strip, i, 0, 180, 0);
+                } else if (i < 6) {
+                    led_strip_set_pixel(s_led_strip, i, 180, 180, 0);
+                } else {
+                    led_strip_set_pixel(s_led_strip, i, 220, 0, 0);
+                }
             } else {
-                led_strip_set_pixel(s_led_strip, i, 220, 0, 0);
+                led_strip_set_pixel(s_led_strip, i, 0, 0, 0);
             }
-        } else {
-            led_strip_set_pixel(s_led_strip, i, 0, 0, 0);
         }
+        led_strip_refresh(s_led_strip);
+        xSemaphoreGive(s_led_mutex);
     }
-    led_strip_refresh(s_led_strip);
 }
