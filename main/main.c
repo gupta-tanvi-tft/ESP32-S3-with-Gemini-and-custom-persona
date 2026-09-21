@@ -499,6 +499,7 @@ static void continuous_mic_stream_task(void *pvParameters) {
             }
 
             s_conv_state = CONV_STATE_THINKING;
+            s_last_speech_time_ms = now_ms;
             update_led_state(CONV_STATE_THINKING);
 
             speech_accum_ms = 0;
