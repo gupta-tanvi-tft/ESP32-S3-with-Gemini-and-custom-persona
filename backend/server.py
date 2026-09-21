@@ -558,14 +558,8 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
         f"{persona_str}\n"
     )
 
-    voice_name = os.getenv("GEMINI_VOICE", "Kore") # 'Kore' provides warm, soothing, natural tone
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
-            )
-        ),
         system_instruction=types.Content(
             parts=[types.Part.from_text(text=system_instruction)]
         )
