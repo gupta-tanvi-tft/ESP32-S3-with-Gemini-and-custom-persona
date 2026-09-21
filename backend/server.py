@@ -474,6 +474,44 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
     import json
     import urllib.request
 
+    # Helper to resolve patient persona dynamically for tool calls
+    async def load_persona_data_for_name(name_query: str):
+        target_id = None
+        matched_name = name_query
+        try:
+            doc_url = f"{api_base_url}/agent/patients/{session_id}"
+            req = urllib.request.Request(doc_url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                doc_data = json.loads(resp.read().decode("utf-8"))
+                patients_list = doc_data.get("patients", [])
+                query_clean = name_query.strip().lower()
+                for p in patients_list:
+                    fn = p.get("first_name", "").strip().lower()
+                    ln = p.get("last_name", "").strip().lower()
+                    full_n = f"{fn} {ln}".strip()
+                    if query_clean in full_n or query_clean in fn or (fn and fn in query_clean):
+                        target_id = p.get("id") or p.get("_id")
+                        matched_name = f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
+                        logger.info(f"⚡ Patient Match: '{name_query}' -> ID: {target_id} ({matched_name})")
+                        break
+        except Exception as err:
+            logger.warning(f"Error searching patient roster: {err}")
+
+        p_info = {}
+        if target_id:
+            try:
+                persona_url = f"{api_base_url}/persona/{target_id}"
+                req = urllib.request.Request(persona_url, headers={
+                    "Authorization": f"Bearer {bearer_token}",
+                    "Accept": "application/json"
+                })
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    p_info = data.get("persona", {})
+            except Exception as err:
+                logger.warning(f"Error fetching persona for ID '{target_id}': {err}")
+        return matched_name, p_info
+
     # 1. Fetch Doctor's Patient List & Dynamic Patient Persona via APIs
     if session_id and session_id != "default":
         # Check if session_id is a Doctor ID (starts with 6788 or matches doctor ID length)
@@ -678,6 +716,28 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
 
                     async for response in session.receive():
                         last_activity_time = loop.time()
+
+                        # Handle Tool Call from Gemini Live for API 2 Persona Lookup / Notes / Alerts
+                        if response.tool_call is not None:
+                            for call in response.tool_call.function_calls:
+                                logger.info(f"🔍 Executing Tool Call: '{call.name}' args={call.args}")
+                                matched_n = call.args.get("patient_name", "Patient")
+                                p_info = {}
+                                if call.name == "load_patient_record":
+                                    matched_n, p_info = await load_persona_data_for_name(matched_n)
+                                tool_response = types.LiveClientToolResponse(
+                                    function_responses=[
+                                        types.FunctionResponse(
+                                            name=call.name,
+                                            id=call.id,
+                                            response={"status": "success", "matched_patient": matched_n, "patient_data": p_info}
+                                        )
+                                    ]
+                                )
+                                try:
+                                    await session.send_tool_response(function_responses=tool_response.function_responses)
+                                except Exception:
+                                    await session.send(input=tool_response)
                         server_content = response.server_content
                         if server_content is not None:
                             model_turn = server_content.model_turn
