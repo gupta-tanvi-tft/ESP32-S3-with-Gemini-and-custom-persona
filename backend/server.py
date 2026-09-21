@@ -620,20 +620,7 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
 
             rx_task = asyncio.create_task(gemini_rx_loop())
 
-            async def keepalive_ping_task():
-                while True:
-                    await asyncio.sleep(8.0)
-                    now = loop.time()
-                    if (now - last_activity_time) >= 8.0:
-                        try:
-                            silent_pcm_10ms = b'\x00' * 320
-                            await session.send_realtime_input(
-                                audio=types.Blob(data=silent_pcm_10ms, mime_type="audio/pcm;rate=16000")
-                            )
-                        except Exception as ping_err:
-                            logger.warning(f"Live ping failed: {ping_err}")
 
-            keepalive_task_handle = asyncio.create_task(keepalive_ping_task())
 
             audio_buffer = bytearray()
             chunk_counter = 0
@@ -684,7 +671,6 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
                             await session.send_realtime_input(audio_stream_end=True)
                             audio_buffer.clear()
             finally:
-                keepalive_task_handle.cancel()
                 rx_task.cancel()
     except WebSocketDisconnect:
         logger.info(f"🔴 Client disconnected from Gemini Live Stream (session_id: '{session_id}')")
