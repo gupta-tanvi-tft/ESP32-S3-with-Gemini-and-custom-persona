@@ -525,6 +525,13 @@ static void continuous_mic_stream_task(void *pvParameters) {
       // Drop mic frames while waiting for response audio
       speech_accum_ms = 0;
       silence_accum_ms = 0;
+      
+      // Fallback timeout: If no audio response arrives within 6 seconds, reset to LISTENING
+      if ((now_ms - s_last_speech_time_ms) > 6000) {
+        ESP_LOGW(TAG, "⚠️ Response timeout (6s). Returning to LISTENING state.");
+        s_conv_state = CONV_STATE_LISTENING;
+        update_led_state(CONV_STATE_LISTENING);
+      }
       continue;
     }
   }
