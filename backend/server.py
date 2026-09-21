@@ -668,7 +668,10 @@ async def websocket_live_stream(websocket: WebSocket, session_id: str = "default
                         if "audio_end" in txt:
                             streaming_speech = False
                             logger.info(f"🎤 [Explicit Turn End]: Triggering Gemini response for session '{session_id}'...")
-                            await session.send_realtime_input(audio_stream_end=True)
+                            try:
+                                await session.send_realtime_input(audio_stream_end=True)
+                            except Exception as err:
+                                logger.warning(f"Error sending audio_stream_end: {err}")
                             audio_buffer.clear()
             finally:
                 rx_task.cancel()
